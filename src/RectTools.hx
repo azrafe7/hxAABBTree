@@ -1,17 +1,6 @@
 package ;
 
 
-typedef PointLike = {
-	var x:Float;
-	var y:Float;
-}
-
-typedef RectLike = {
-	var x:Float;
-	var y:Float;
-	var width:Float;
-	var height:Float;
-}
 
 /**
  * ...

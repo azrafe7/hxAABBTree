@@ -1,12 +1,6 @@
 package ;
 
-import flash.geom.Point;
-import haxe.ds.BalancedTree;
-import haxe.ds.Option;
-import haxe.ds.StringMap;
-import RectTools;
-
-using RectTools;
+import AABB;
 
 /**
  * ...
@@ -14,27 +8,39 @@ using RectTools;
  */
 class AABBTree<T>
 {
-
-	var enlargeDelta:Float;
+	/** How much to fatten the aabb. */
+	var fattenDelta:Float;
+	
+	/** Total number of nodes. */
+	var numNodes:Int = 0;
+	
+	/* Pooled nodes stuff. */
+	var pool:AABBTreeNodePool<T>;
+	var maxId:Int = 0;
+	var unusedIds:Array<Int>;
 	
 	var root:AABBTreeNode<T> = null;
 	
-	var numNodes:Int = 0;
-	
-	var pool:AABBTreeNodePool<T>;
-	
-	var maxId:Int = 0;
-	var unusedIds:Array<Int>;
+	/** Cache-friendly array of nodes. */
 	var nodes:Array<AABBTreeNode<T>>;
+
 	
-	public function new(enlargeDelta:Float = .5, initialPoolCapacity:Int = 16) 
+	/**
+	 * Creates a new AABBTree.
+	 * 
+	 * @param	enlargeDelta			How much to fatten the aabb's (to avoid updating them to frequently when the underlying data moves).
+	 * @param	initialPoolCapacity		How much free nodes to have in the pool initially.
+	 */
+	public function new(fattenDelta:Float = .5, initialPoolCapacity:Int = 16):Void
 	{
-		this.enlargeDelta = enlargeDelta;
+		this.fattenDelta = fattenDelta;
 		pool = new AABBTreeNodePool<T>(initialPoolCapacity);
 		unusedIds = [];
 		nodes = [];
 	}
 	
+	
+	/** Gets the next available id for a node, fecthing it from the list of unused ones if available. */
 	public function getNextId():Int 
 	{
 		var newId = unusedIds.length > 0 ? unusedIds.pop() : maxId++;
@@ -42,11 +48,16 @@ class AABBTree<T>
 		return newId;
 	}
 	
+	/** 
+	 * Inserts a leaf object with the specified `aabb` and associated `data`.
+	 * 
+	 * @return The index of the inserted node.
+	 */
 	public function insertLeaf(aabb:RectLike, data:T):Int
 	{
 		// create new node and fatten its aabb
 		var leafNode = pool.get(aabb, data, null, getNextId());
-		leafNode.aabb.inflate(enlargeDelta, enlargeDelta);
+		leafNode.aabb.inflate(fattenDelta, fattenDelta);
 		leafNode.invHeight = 0;
 		nodes[leafNode.id] = leafNode;
 		numNodes++;
@@ -152,6 +163,9 @@ class AABBTree<T>
 		return leafNode.id;
 	}
 	
+	/** 
+	 * Removes the leaf node with the specified `leafId` from the tree (must be a leaf node).
+	 */
 	public function removeLeaf(leafId:Int):Void
 	{
 		var leafNode = nodes[leafId];
@@ -232,9 +246,12 @@ class AABBTree<T>
 		return res;
 	}
 	
-	// Perform a left or right rotation if node A is imbalanced.
-	// Returns the new root index.
-	public function balance(nodeId:Int):Int
+	/**
+	 * Performs a left or right rotation if `nodeId` is unbalanced.
+	 * 
+	 * Returns the new root index.
+	 */
+	private function balance(nodeId:Int):Int
 	{
 		var A = nodes[nodeId];
 		assert(A != null);
@@ -249,101 +266,117 @@ class AABBTree<T>
 		var balanceValue = C.invHeight - B.invHeight;
 
 		// rotate C up
-		if (balanceValue > 1) {
-			var F = C.left;
-			var G = C.right;
-
-			// swap A and C
-			C.left = A;
-			C.parent = A.parent;
-			A.parent = C;
-
-			// A's old parent should point to C
-			if (C.parent != null) {
-				if (C.parent.left == A) {
-					C.parent.left = C;
-				} else {
-					assert(C.parent.right == A);
-					C.parent.right = C;
-				}
-			} else {
-				root = C;
-			}
-
-			// rotate
-			if (F.invHeight > G.invHeight) {
-				C.right = F;
-				A.right = G;
-				G.parent = A;
-				A.aabb.asUnionOf(B.aabb, G.aabb);
-				C.aabb.asUnionOf(A.aabb, F.aabb);
-
-				A.invHeight = 1 + Std.int(Math.max(B.invHeight, G.invHeight));
-				C.invHeight = 1 + Std.int(Math.max(A.invHeight, F.invHeight));
-			} else {
-				C.right = G;
-				A.right = F;
-				F.parent = A;
-				A.aabb.asUnionOf(B.aabb, F.aabb);
-				C.aabb.asUnionOf(A.aabb, G.aabb);
-
-				A.invHeight = 1 + Std.int(Math.max(B.invHeight, F.invHeight));
-				C.invHeight = 1 + Std.int(Math.max(A.invHeight, G.invHeight));
-			}
-
-			return C.id;
-		}
+		if (balanceValue > 1) return rotateLeft(A, B, C);
 		
 		// rotate B up
-		if (balanceValue < -1) {
-			var D = B.left;
-			var E = B.right;
-
-			// swap A and B
-			B.left = A;
-			B.parent = A.parent;
-			A.parent = B;
-
-			// A's old parent should point to B
-			if (B.parent != null)
-			{
-				if (B.parent.left == A) {
-					B.parent.left = B;
-				} else {
-					assert(B.parent.right == A);
-					B.parent.right = B;
-				}
-			} else {
-				root = B;
-			}
-
-			// rotate
-			if (D.invHeight > E.invHeight) {
-				B.right = D;
-				A.left = E;
-				E.parent = A;
-				A.aabb.asUnionOf(C.aabb, E.aabb);
-				B.aabb.asUnionOf(A.aabb, D.aabb);
-
-				A.invHeight = 1 + Std.int(Math.max(C.invHeight, E.invHeight));
-				B.invHeight = 1 + Std.int(Math.max(A.invHeight, D.invHeight));
-			} else {
-				B.right = E;
-				A.left = D;
-				D.parent = A;
-				A.aabb.asUnionOf(C.aabb, D.aabb);
-				B.aabb.asUnionOf(A.aabb, E.aabb);
-
-				A.invHeight = 1 + Std.int(Math.max(C.invHeight, D.invHeight));
-				B.invHeight = 1 + Std.int(Math.max(A.invHeight, E.invHeight));
-			}
-
-			return B.id;
-		}
+		if (balanceValue < -1) return rotateRight(A, B, C);
 
 		return A.id;
 	}
 
+	//            A			parent
+	//          /   \
+	//         B     C		left and right nodes
+	//        / \   / \
+	//       D   E F   G
+	private function rotateLeft(parentNode:AABBTreeNode<T>, leftNode:AABBTreeNode<T>, rightNode:AABBTreeNode<T>):Int
+	{
+		var F = rightNode.left;
+		var G = rightNode.right;
+
+		// swap A and C
+		rightNode.left = parentNode;
+		rightNode.parent = parentNode.parent;
+		parentNode.parent = rightNode;
+
+		// A's old parent should point to C
+		if (rightNode.parent != null) {
+			if (rightNode.parent.left == parentNode) {
+				rightNode.parent.left = rightNode;
+			} else {
+				assert(rightNode.parent.right == parentNode);
+				rightNode.parent.right = rightNode;
+			}
+		} else {
+			root = rightNode;
+		}
+
+		// rotate
+		if (F.invHeight > G.invHeight) {
+			rightNode.right = F;
+			parentNode.right = G;
+			G.parent = parentNode;
+			parentNode.aabb.asUnionOf(leftNode.aabb, G.aabb);
+			rightNode.aabb.asUnionOf(parentNode.aabb, F.aabb);
+
+			parentNode.invHeight = 1 + Std.int(Math.max(leftNode.invHeight, G.invHeight));
+			rightNode.invHeight = 1 + Std.int(Math.max(parentNode.invHeight, F.invHeight));
+		} else {
+			rightNode.right = G;
+			parentNode.right = F;
+			F.parent = parentNode;
+			parentNode.aabb.asUnionOf(leftNode.aabb, F.aabb);
+			rightNode.aabb.asUnionOf(parentNode.aabb, G.aabb);
+
+			parentNode.invHeight = 1 + Std.int(Math.max(leftNode.invHeight, F.invHeight));
+			rightNode.invHeight = 1 + Std.int(Math.max(parentNode.invHeight, G.invHeight));
+		}
+		
+		return rightNode.id;
+	}
+	
+	//            A			parent
+	//          /   \
+	//         B     C		left and right nodes
+	//        / \   / \
+	//       D   E F   G
+	private function rotateRight(parentNode:AABBTreeNode<T>, leftNode:AABBTreeNode<T>, rightNode:AABBTreeNode<T>):Int
+	{
+		var D = leftNode.left;
+		var E = leftNode.right;
+
+		// swap A and B
+		leftNode.left = parentNode;
+		leftNode.parent = parentNode.parent;
+		parentNode.parent = leftNode;
+
+		// A's old parent should point to B
+		if (leftNode.parent != null)
+		{
+			if (leftNode.parent.left == parentNode) {
+				leftNode.parent.left = leftNode;
+			} else {
+				assert(leftNode.parent.right == parentNode);
+				leftNode.parent.right = leftNode;
+			}
+		} else {
+			root = leftNode;
+		}
+
+		// rotate
+		if (D.invHeight > E.invHeight) {
+			leftNode.right = D;
+			parentNode.left = E;
+			E.parent = parentNode;
+			parentNode.aabb.asUnionOf(rightNode.aabb, E.aabb);
+			leftNode.aabb.asUnionOf(parentNode.aabb, D.aabb);
+
+			parentNode.invHeight = 1 + Std.int(Math.max(rightNode.invHeight, E.invHeight));
+			leftNode.invHeight = 1 + Std.int(Math.max(parentNode.invHeight, D.invHeight));
+		} else {
+			leftNode.right = E;
+			parentNode.left = D;
+			D.parent = parentNode;
+			parentNode.aabb.asUnionOf(rightNode.aabb, D.aabb);
+			leftNode.aabb.asUnionOf(parentNode.aabb, E.aabb);
+
+			parentNode.invHeight = 1 + Std.int(Math.max(rightNode.invHeight, D.invHeight));
+			leftNode.invHeight = 1 + Std.int(Math.max(parentNode.invHeight, E.invHeight));
+		}
+
+		return leftNode.id;
+	}
+	
 	static function assert(cond:Bool) {
 		if (!cond) throw "ASSERT FAILED!";
 	}
@@ -385,106 +418,20 @@ class AABBTreeNode<T>
 }
 
 
-@:publicFields
-class AABB
-{
-	var minX:Float;
-	var maxX:Float;
-	var minY:Float;
-	var maxY:Float;
-
-	function new(?rect:RectLike):Void 
-	{
-		if (rect != null) {
-			minX = rect.x;
-			minY = rect.y;
-			maxX = rect.x + rect.width;
-			maxY = rect.y + rect.height;
-		} else {
-			minX = minY = maxX = maxY = 0;
-		}
-	}
-
-	function inflate(deltaX:Float, deltaY:Float):AABB
-	{
-		minX -= deltaX;
-		minY -= deltaY;
-		maxX += deltaX;
-		maxY += deltaY;
-		return this;
-	}
-	
-	function getPerimeter():Float
-	{
-		return 2 * ((maxX - minX) + (maxY - minY));
-	}
-	
-	function getArea():Float
-	{
-		return (maxX - minX) * (maxY - minY);
-	}
-	
-	function getCenter():PointLike
-	{
-		return { x:minX + .5 * (maxX - minX), y:minY + .5 * (maxY - minY) };
-	}
-	
-	function union(aabb:AABB):AABB
-	{
-		minX = Math.min(minX, aabb.minX);
-		minY = Math.min(minY, aabb.minY);
-		maxX = Math.max(maxX, aabb.maxX);
-		maxY = Math.max(maxY, aabb.maxY);
-		return this;
-	}
-	
-	function asUnionOf(aabb1:AABB, aabb2:AABB):AABB
-	{
-		minX = Math.min(aabb1.minX, aabb2.minX);
-		minY = Math.min(aabb1.minY, aabb2.minY);
-		maxX = Math.max(aabb1.maxX, aabb2.maxX);
-		maxY = Math.max(aabb1.maxY, aabb2.maxY);
-		return this;
-	}
-	
-	function clone():AABB
-	{
-		return new AABB( { x:minX, y:minY, width:maxX - minX, height:maxY - minY } );
-	}
-
-	function fromAABB(aabb:AABB):AABB
-	{
-		minX = aabb.minX;
-		minY = aabb.minY;
-		maxX = aabb.maxX;
-		maxY = aabb.maxY;
-		return this;
-	}
-
-	function fromRect(aabb:RectLike):AABB
-	{
-		minX = aabb.x;
-		minY = aabb.y;
-		maxX = aabb.x + aabb.width;
-		maxY = aabb.y + aabb.height;
-		return this;
-	}
-	
-	function overlaps(aabb:AABB):Bool
-	{
-		return !(minX > aabb.maxX || maxX < aabb.minX || minY > aabb.maxY || maxY < aabb.minY);
-	}
-}
 
 @:allow(AABBTree)
 class AABBTreeNodePool<T>
 {
+	/** The pool will grow by `capacity * INCREASE_FACTOR` factor when it's empty. */
 	var INCREASE_FACTOR:Float = 1.5;
-	var ZERO_RECT:RectLike = RectTools.getNewRect();
 	
+	static var ZERO_RECT:RectLike = { x:0, y:0, width:0, height:0 };
+	
+	/** Initial capacity of the pool. */
 	var capacity:Int;
 	
 	var freeNodes:Array<AABBTreeNode<T>>;
+	
 	
 	function new(capacity:Int)
 	{
@@ -493,6 +440,7 @@ class AABBTreeNodePool<T>
 		for (i in 0...capacity) freeNodes.push(new AABBTreeNode(ZERO_RECT, null));
 	}
 	
+	/** Fetches a node from the pool (if available) or creates a new one. */
 	function get(aabb:RectLike, data:T, parent:AABBTreeNode<T> = null, id:Int = -1):AABBTreeNode<T>
 	{
 		var newNode:AABBTreeNode<T>;
@@ -512,6 +460,7 @@ class AABBTreeNodePool<T>
 		return newNode;
 	}
 	
+	/** Reinserts an unused node into the pool (for future use). */
 	function put(node:AABBTreeNode<T>):Void 
 	{
 		freeNodes.push(node);
