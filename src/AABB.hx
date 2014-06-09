@@ -1,19 +1,6 @@
 package ;
 
 
-typedef PointLike = {
-	var x:Float;
-	var y:Float;
-}
-
-typedef RectLike = {
-	var x:Float;
-	var y:Float;
-	var width:Float;
-	var height:Float;
-}
-
-
 /**
  * Axis-Aligned Bounding Box.
  * 
@@ -26,17 +13,53 @@ class AABB
 	public var minY:Float;
 	public var maxY:Float;
 
-	/** Creates an AABB from a RectLike. */
-	public function new(?rect:RectLike):Void 
+	public var x(get, set):Float;
+	inline private function get_x():Float
 	{
-		if (rect != null) {
-			minX = rect.x;
-			minY = rect.y;
-			maxX = rect.x + rect.width;
-			maxY = rect.y + rect.height;
-		} else {
-			minX = minY = maxX = maxY = 0;
-		}
+		return minX;
+	}
+	inline private function set_x(value:Float):Float
+	{
+		return minX = value;
+	}
+	
+	public var y(get, set):Float;
+	inline private function get_y():Float
+	{
+		return minY;
+	}
+	inline private function set_y(value:Float):Float
+	{
+		return minY = value;
+	}
+	
+	public var width(get, null):Float;
+	inline private function get_width():Float
+	{
+		return maxX - minX;
+	}
+	
+	public var height(get, null):Float;
+	inline private function get_height():Float
+	{
+		return maxY - minY;
+	}
+	
+	/** Creates an AABB from the specified parameters. */
+	public function new(x:Float = 0, y:Float = 0, width:Float = 0, height:Float = 0):Void 
+	{
+		minX = x;
+		minY = y;
+		maxX = x + width;
+		maxY = y + height;
+	}
+
+	public function setTo(x:Float, y:Float, width:Float = 0, height:Float = 0):Void 
+	{
+		minX = x;
+		minY = y;
+		maxX = x + width;
+		maxY = y + height;
 	}
 
 	public function inflate(deltaX:Float, deltaY:Float):AABB
@@ -58,12 +81,17 @@ class AABB
 		return (maxX - minX) * (maxY - minY);
 	}
 	
-	public function getCenter():PointLike
+	public function getCenterX():Float
 	{
-		return { x:minX + .5 * (maxX - minX), y:minY + .5 * (maxY - minY) };
+		return minX + .5 * (maxX - minX);
 	}
 	
-	/** Resizes this instance so that tightly encloses `aabb`. */
+	public function getCenterY():Float
+	{
+		return minY + .5 * (maxY - minY);
+	}
+	
+	/** Resizes this instance so that it tightly encloses `aabb`. */
 	public function union(aabb:AABB):AABB
 	{
 		minX = Math.min(minX, aabb.minX);
@@ -95,24 +123,23 @@ class AABB
 		return (aabb.minX >= minX && aabb.maxX <= maxX && aabb.minY >= minY && aabb.maxY <= maxY);
 	}
 	
-	/** 
-	 * Resizes this instance to be the intersection with `aabb`. 
-	 * 
-	 * Properties may be invalid (i.e. `minX` > `maxX`) if there's no interesection (check with `overlaps()` first). */
-	public function intersectWith(aabb:AABB):AABB 
+	/** Returns a new instance that is the intersection with `aabb`, or null if there's no interesection. */
+	public function getIntersection(aabb:AABB):AABB 
 	{
-		minX = Math.max(minX, aabb.minX);
-		maxX = Math.min(maxX, aabb.maxX);
-		minY = Math.max(minY, aabb.minY);
-		maxY = Math.min(maxY, aabb.maxY);
-		return this;
+		var intersection = this.clone();
+		intersection.minX = Math.max(minX, aabb.minX);
+		intersection.maxX = Math.min(maxX, aabb.maxX);
+		intersection.minY = Math.max(minY, aabb.minY);
+		intersection.maxY = Math.min(maxY, aabb.maxY);
+		return (intersection.minX > intersection.maxX || intersection.minY > intersection.maxY) ? null : intersection;
 	}
-
+	
 	public function clone():AABB
 	{
-		return new AABB( { x:minX, y:minY, width:maxX - minX, height:maxY - minY } );
+		return new AABB(minX, minY, maxX - minX, maxY - minY);
 	}
 
+	/** Copies values from the specified `aabb`. */
 	public function fromAABB(aabb:AABB):AABB
 	{
 		minX = aabb.minX;
@@ -121,14 +148,4 @@ class AABB
 		maxY = aabb.maxY;
 		return this;
 	}
-
-	public function fromRect(aabb:RectLike):AABB
-	{
-		minX = aabb.x;
-		minY = aabb.y;
-		maxX = aabb.x + aabb.width;
-		maxY = aabb.y + aabb.height;
-		return this;
-	}
-	
 }

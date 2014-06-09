@@ -13,9 +13,9 @@ import flash.geom.Rectangle;
 import flash.Lib;
 import flash.system.System;
 import flash.text.TextField;
+import flash.text.TextFieldAutoSize;
 import flash.text.TextFormat;
 import flash.text.TextFormatAlign;
-import AABBTree;
 import haxe.Log;
 import haxe.PosInfos;
 
@@ -46,7 +46,7 @@ class Test extends Sprite {
 		stage.addEventListener(KeyboardEvent.KEY_DOWN, onKeyDown);
 		
 		
-		tree = new AABBTree();
+		tree = new AABBTree(10);
 		
 		/*rtree.insert(1, new Rectangle());
 		rtree.insert(2, new Rectangle(0,0,10,10));
@@ -57,15 +57,16 @@ class Test extends Sprite {
 		for (i in 0...1) {
 			var r = new Rectangle(Math.random() * 400 + 25, Math.random() * 300 + 25, Math.random() * 300 + 200, Math.random() * 150 + 50);
 			//trace(r);
-			tree.insertLeaf(r, r);
+			tree.insertLeaf(r.x, r.y, r.width, r.height, r);
 		}
 		
+		tree.insertLeaf(100, 100, 0, 0, new Rectangle());
 		
 		trace(tree.numNodes, tree.root.invHeight);
-		drawTree(tree, tree.root.invHeight);
+		drawTree(tree, 0);
 		//trace(Math.random() * 100 + 200);
 		
-		//stage.addChild(text = getTextField("invHeight: " + tree.root.invHeight, 20, 20));
+		stage.addChild(text = getTextField("invHeight: " + tree.root.invHeight, 50, 50));
 		//quit();
 	}
 
@@ -93,19 +94,20 @@ class Test extends Sprite {
 				g.endFill();
 			}
 			if (node.parent != null) {
-				var center = node.aabb.getCenter();
+				//var center = node.aabb.getCenter();
 				g.lineStyle(1, Std.int(Math.random()*0xffffff));
 				g.moveTo(node.aabb.minX, node.aabb.minY);
 				g.lineTo(node.parent.aabb.minX, node.parent.aabb.minY);
 			}
 		}
-		trace(count);
+		trace("nodes: " + count);
 	}
 	
 	public function getTextField(text:String = "", x:Float, y:Float):TextField
 	{
 		var tf:TextField = new TextField();
 		var fmt:TextFormat = new TextFormat(TEXT_FONT, null, TEXT_COLOR);
+		tf.autoSize = TextFieldAutoSize.LEFT;
 		fmt.align = TextFormatAlign.CENTER;
 		fmt.size = TEXT_SIZE;
 		tf.defaultTextFormat = fmt;
@@ -138,21 +140,27 @@ class Test extends Sprite {
 			drawTree(tree, invHeight);
 		}
 		
-		if (e.keyCode == "A".code) {
+		else if (e.keyCode == "A".code) {
 			var r = new Rectangle(Math.random() * 350 + 25, Math.random() * 300 + 25, Math.random() * 100 + 10, Math.random() * 100 + 10);
-			tree.insertLeaf(r, r);
+			tree.insertLeaf(r.x, r.y, r.width, r.height, r);
 			g.clear();
 			drawTree(tree, invHeight);
 		}
 
-		if (e.keyCode == "Q".code) {
+		else if (e.keyCode == "Q".code) {
+			g.clear();
+			drawTree(tree, invHeight);
 			var r = new Rectangle(Math.random() * 300 + 25, Math.random() * 300 + 25, Math.random() * 200 + 200, Math.random() * 150 + 50);
-			g.lineStyle(1, 0);
-			var qRect = new Rectangle(50, 50, 250, 150);
+			g.lineStyle(1, -1);
+			var qRect = new Rectangle(Math.random() * 100 + 200, Math.random() * 100 + 100, 2, 2);
+			drawRects(tree.query(qRect.x, qRect.y, qRect.width, qRect.height));
+			trace("leaves: " + tree.numLeaves);
+			trace("found: " + tree.query(qRect.x, qRect.y, qRect.width, qRect.height).length);
+			trace("balance: " + tree.getMaxBalance());
 			g.drawRect(qRect.x, qRect.y, qRect.width, qRect.height);
-			drawRects(tree.queryRange(qRect));
-			trace(tree.queryRange(qRect).length);
 		}
+		var mem = System.totalMemory / 1024 / 1024;
+		text.text = "mem: " + (Math.pow(mem, 10) / 100) + "  height: " + tree.root.invHeight;
 	}
 	
 	public function quit():Void 

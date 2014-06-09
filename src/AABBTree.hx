@@ -1,18 +1,35 @@
 package ;
 
 import AABB;
+import IInsertStrategy;
+
 
 /**
- * ...
+ * AABBTree implementation. A spatial partitioning data structure.
+ * 
  * @author azrafe7
  */
 class AABBTree<T>
 {
 	/** How much to fatten the aabb. */
-	var fattenDelta:Float;
+	public var fattenDelta:Float;
+	
+	/** Algorithm to use for choosing where to insert a new leaf. */
+	public var insertStrategy:IInsertStrategy<T>;
 	
 	/** Total number of nodes. */
-	var numNodes:Int = 0;
+	public var numNodes(default, null):Int = 0;
+	
+	/** Total number of leaves. */
+	public var numLeaves(default, null):Int = 0;
+	
+	/** Height of the tree. */
+	public var height(get, null):Int;
+	inline private function get_height():Int
+	{
+		return root != null ? root.invHeight : -1;
+	}
+	
 	
 	/* Pooled nodes stuff. */
 	var pool:AABBTreeNodePool<T>;
@@ -21,46 +38,45 @@ class AABBTree<T>
 	
 	var root:AABBTreeNode<T> = null;
 	
-	/** Cache-friendly array of nodes. */
+	/* Cache-friendly array of nodes. Entries are set to null when removed (to be reused later). */
 	var nodes:Array<AABBTreeNode<T>>;
+	
+	/* Indices of leaf nodes for fast access. */
+	var leaves:Array<Int>;
 
 	
 	/**
 	 * Creates a new AABBTree.
 	 * 
-	 * @param	enlargeDelta			How much to fatten the aabb's (to avoid updating them to frequently when the underlying data moves).
+	 * @param	fattenDelta				How much to fatten the aabb's (to avoid updating them to frequently when the underlying data moves/resizes).
+	 * @param	insertStrategy			Algorithm to use for choosing where to insert a new leaf. Defaults to `InsertStrategyArea`.
 	 * @param	initialPoolCapacity		How much free nodes to have in the pool initially.
 	 */
-	public function new(fattenDelta:Float = .5, initialPoolCapacity:Int = 16):Void
+	public function new(fattenDelta:Float = 10, ?insertStrategy:IInsertStrategy<T>, initialPoolCapacity:Int = 16):Void
 	{
 		this.fattenDelta = fattenDelta;
+		this.insertStrategy = insertStrategy != null ? insertStrategy : new InsertStrategyArea<T>();
 		pool = new AABBTreeNodePool<T>(initialPoolCapacity);
 		unusedIds = [];
 		nodes = [];
-	}
-	
-	
-	/** Gets the next available id for a node, fecthing it from the list of unused ones if available. */
-	public function getNextId():Int 
-	{
-		var newId = unusedIds.length > 0 ? unusedIds.pop() : maxId++;
-		trace(newId);
-		return newId;
+		leaves = [];
 	}
 	
 	/** 
-	 * Inserts a leaf object with the specified `aabb` and associated `data`.
+	 * Inserts a leaf node with the specified `aabb` values and associated `data`.
 	 * 
 	 * @return The index of the inserted node.
 	 */
-	public function insertLeaf(aabb:RectLike, data:T):Int
+	public function insertLeaf(x:Float, y:Float, width:Float = 0, height:Float = 0, ?data:T):Int
 	{
 		// create new node and fatten its aabb
-		var leafNode = pool.get(aabb, data, null, getNextId());
+		var leafNode = pool.get(x, y, width, height, data, null, getNextId());
 		leafNode.aabb.inflate(fattenDelta, fattenDelta);
 		leafNode.invHeight = 0;
 		nodes[leafNode.id] = leafNode;
 		numNodes++;
+		numLeaves++;
+		leaves.push(leafNode.id);
 		
 		if (root == null) {
 			root = leafNode;
@@ -75,50 +91,23 @@ class AABBTree<T>
 		var node = root;
 		while (!node.isLeaf())
 		{
-			left = node.left;
-			right = node.right;
-
-			var area = node.aabb.getArea();
-
-			combinedAABB.asUnionOf(node.aabb, leafAABB);
-			var combinedArea = combinedAABB.getArea();
-
-			// cost of creating a new parent for this node and the new leaf
-			var costParent = 2 * combinedArea;
-
-			// minimum cost of pushing the leaf further down the tree
-			var costDescend = 2 * (combinedArea - area);
-
-			// cost of descending into left node
-			combinedAABB.asUnionOf(leafAABB, left.aabb);
-			var costLeft = combinedAABB.getArea() + costDescend;
-			if (!left.isLeaf()) {
-				costLeft -= left.aabb.getArea();
+			switch (insertStrategy.choose(leafAABB, node))
+			{
+				case InsertBehaviour.PARENT:
+					break;
+				case InsertBehaviour.DESCEND_LEFT:
+					node = node.left;
+				case InsertBehaviour.DESCEND_RIGHT:
+					node = node.right;
 			}
-
-			// cost of descending into right node
-			combinedAABB.asUnionOf(leafAABB, right.aabb);
-			var costRight = combinedAABB.getArea() + costDescend;
-			if (!right.isLeaf()) {
-				costRight -= right.aabb.getArea();
-			}
-
-			// ascend/descend according to the minimum cost
-			if (costParent < costLeft && costParent < costRight) {
-				break;
-			}
-
-			// descend
-			node = costLeft < costRight ? left : right;
 		}
 
 		var sibling = node;
 		
 		// create a new parent
 		var oldParent = sibling.parent;
-		var newParent = pool.get(null, null, oldParent, getNextId());
 		combinedAABB.asUnionOf(leafAABB, sibling.aabb);
-		newParent.aabb = combinedAABB.clone();
+		var newParent = pool.get(combinedAABB.x, combinedAABB.y, combinedAABB.width, combinedAABB.height, null, oldParent, getNextId());
 		newParent.invHeight = sibling.invHeight + 1;
 		nodes[newParent.id] = newParent;
 		numNodes++;
@@ -159,8 +148,31 @@ class AABBTree<T>
 			node = node.parent;
 		}
 
-		//Validate();
+		validate();
 		return leafNode.id;
+	}
+	
+	/** 
+	 * Updates the aabb of leaf node with the specified `leafId` (must be a leaf node).
+	 * 
+	 * @return False if the fat aabb didn't need to be expanded.
+	 */
+	public function updateLeaf(leafId:Int, x:Float, y:Float, width:Float = 0, height:Float = 0):Bool
+	{
+		var leafNode = nodes[leafId];
+		assert(leafNode.isLeaf());
+		
+		var newAABB = new AABB(x, y, width, height);
+		var leafNode = nodes[leafId];
+		
+		if (leafNode.aabb.contains(newAABB)) {
+			return false;
+		}
+		
+		var data = leafNode.data;
+		removeLeaf(leafId);
+		insertLeaf(x, y, width, height, data);
+		return true;
 	}
 	
 	/** 
@@ -172,11 +184,12 @@ class AABBTree<T>
 		assert(leafNode.isLeaf());
 		
 		numNodes--;
+		numLeaves--;
+		if (numLeaves > 0) leaves[leaves.indexOf(leafId)] = leaves[numLeaves];
+		else leaves.pop();
 		
 		if (leafNode == root) {
-			nodes[leafNode.id] = null;
-			unusedIds.push(leafNode.id);
-			pool.put(leafNode);
+			disposeNode(leafId);
 			root = null;
 			return;
 		}
@@ -215,20 +228,64 @@ class AABBTree<T>
 		
 		// destroy parent
 		assert(parent.id != -1);
-		nodes[parent.id] = null;
-		unusedIds.push(parent.id);
-		pool.put(parent);
-
-		//Validate();
+		disposeNode(parent.id);
+		
+		validate();
 	}
 	
-	public function queryRange(aabb:RectLike, ?into:Array<T>):Array<T>
+	/** Removes all nodes from the tree. */
+	public function clear(resetPool:Bool = false)
+	{
+		while (numNodes > 0) {
+			var node = nodes[numNodes - 1];
+			disposeNode(node.id);
+			numNodes--;
+		}
+		root = null;
+		numLeaves = 0;
+		leaves = [];
+		maxId = 0;
+		unusedIds = [];
+		if (resetPool) pool.reset();
+	}
+	
+	/** Rebuild the tree using an optimal (but expensive) strategy. */
+	public function rebuild():Void 
+	{
+		if (root == null) return;
+		
+		// free non-leaf nodes
+		for (node in nodes) {
+			if (!node.isLeaf()) {
+				
+			}
+		}
+		
+	}
+	
+	/** Returns a list of all the data objects attached to leaves (optionally appending them to `into`). */
+	public function getLeavesData(?into:Array<T>):Array<T>
+	{
+		var res = into != null ? into : [];
+		for (id in leaves) res.push(nodes[id].data);
+		return res;
+	}
+	
+	/** Returns a list of all the leaves' ids (optionally appending them to `into`). */
+	public function getLeavesIds(?into:Array<Int>):Array<Int>
+	{
+		var res = into != null ? into : [];
+		for (id in leaves) res.push(id);
+		return res;
+	}
+	
+	public function query(x:Float, y:Float, width:Float = 0, height:Float = 0, ?into:Array<T>):Array<T>
 	{
 		var res = into != null ? into : new Array<T>();
 		if (root == null) return res;
 		
 		var stack = [root];
-		var queryAABB = new AABB(aabb);
+		var queryAABB = new AABB(x, y, width, height);
 		var cnt = 0;
 		while (stack.length > 0) {
 			var node = stack.pop();
@@ -242,14 +299,31 @@ class AABBTree<T>
 				}
 			}
 		}
-		trace(cnt);
+		trace("examined: " + cnt);
 		return res;
+	}
+	
+	/** Gets the next available id for a node, fecthing it from the list of unused ones if available. */
+	private function getNextId():Int 
+	{
+		var newId = unusedIds.length > 0 ? unusedIds.pop() : maxId++;
+		return newId;
+	}
+	
+	/** Returns the node with the specified `id` to the pool. Note that it does NOT decrement `numNodes`. */
+	private function disposeNode(id:Int) {
+		assert(nodes[id] != null);
+
+		var node = nodes[id];
+		nodes[node.id] = null;
+		unusedIds.push(node.id);
+		pool.put(node);
 	}
 	
 	/**
 	 * Performs a left or right rotation if `nodeId` is unbalanced.
 	 * 
-	 * Returns the new root index.
+	 * @return The new parent index.
 	 */
 	private function balance(nodeId:Int):Int
 	{
@@ -274,11 +348,32 @@ class AABBTree<T>
 		return A.id;
 	}
 
-	//            A			parent
-	//          /   \
-	//         B     C		left and right nodes
-	//        / \   / \
-	//       D   E F   G
+	/** Returns max height distance between two children (of the same parent) in the tree. */
+	public function getMaxBalance():Int
+	{
+		var maxBalance = 0;
+		for (i in 0...nodes.length) {
+			var node = nodes[i];
+			if (node.invHeight <= 1 || node == null) continue;
+
+			assert(!node.isLeaf());
+
+			var left = node.left;
+			var right = node.right;
+			var balance = Math.abs(right.invHeight - left.invHeight);
+			maxBalance = Std.int(Math.max(maxBalance, balance));
+		}
+
+		return maxBalance;
+	}
+	
+	/*
+	 *           A			parent
+	 *         /   \
+	 *        B     C		left and right nodes
+	 *             / \
+	 *            F   G
+	 */
 	private function rotateLeft(parentNode:AABBTreeNode<T>, leftNode:AABBTreeNode<T>, rightNode:AABBTreeNode<T>):Int
 	{
 		var F = rightNode.left;
@@ -325,11 +420,13 @@ class AABBTree<T>
 		return rightNode.id;
 	}
 	
-	//            A			parent
-	//          /   \
-	//         B     C		left and right nodes
-	//        / \   / \
-	//       D   E F   G
+	/*
+	 *           A			parent
+	 *         /   \
+	 *        B     C		left and right nodes
+	 *       / \
+	 *      D   E
+	 */
 	private function rotateRight(parentNode:AABBTreeNode<T>, leftNode:AABBTreeNode<T>, rightNode:AABBTreeNode<T>):Int
 	{
 		var D = leftNode.left;
@@ -377,96 +474,52 @@ class AABBTree<T>
 		return leftNode.id;
 	}
 	
-	static function assert(cond:Bool) {
-		if (!cond) throw "ASSERT FAILED!";
-	}
-}
-
-
-@:allow(AABBTree)
-@:allow(AABBTreeNodePool)
-class AABBTreeNode<T> 
-{
-	var left:AABBTreeNode<T> = null;
-	var right:AABBTreeNode<T> = null;
-	var parent:AABBTreeNode<T> = null;
-	
-	// fat AABB
-	var aabb:AABB;
-	
-	// 0 for leafs
-	var invHeight:Int = -1;
-	
-	var data:T;
-	
-	var id:Int = -1;
-	
-	function new(aabb:RectLike, data:T, parent:AABBTreeNode<T> = null, id:Int = -1)
+	private function getNode(id:Int):AABBTreeNode<T> 
 	{
-		this.aabb = new AABB(aabb);
-
-		this.data = data;
-		this.parent = parent;
-		this.id = id;
+		assert(id >= 0 && nodes[id] != null);
+		return nodes[id];
 	}
 	
-	
-	inline function isLeaf():Bool
+	/** Tests validity of node (and its children). */
+	private function validateNode(id:Int):Void 
 	{
-		return left == null;
-	}
-}
-
-
-
-@:allow(AABBTree)
-class AABBTreeNodePool<T>
-{
-	/** The pool will grow by `capacity * INCREASE_FACTOR` factor when it's empty. */
-	var INCREASE_FACTOR:Float = 1.5;
-	
-	static var ZERO_RECT:RectLike = { x:0, y:0, width:0, height:0 };
-	
-	/** Initial capacity of the pool. */
-	var capacity:Int;
-	
-	var freeNodes:Array<AABBTreeNode<T>>;
-	
-	
-	function new(capacity:Int)
-	{
-		this.capacity = capacity;
-		freeNodes = new Array<AABBTreeNode<T>>();
-		for (i in 0...capacity) freeNodes.push(new AABBTreeNode(ZERO_RECT, null));
-	}
-	
-	/** Fetches a node from the pool (if available) or creates a new one. */
-	function get(aabb:RectLike, data:T, parent:AABBTreeNode<T> = null, id:Int = -1):AABBTreeNode<T>
-	{
-		var newNode:AABBTreeNode<T>;
+		var node = nodes[id];
+		assert(node != null);
 		
-		if (freeNodes.length > 0) {
-			newNode = freeNodes.pop();
-			if (aabb != null) newNode.aabb.fromRect(aabb);
-			newNode.data = data;
-			newNode.parent = parent;
-			newNode.id = id;
-		} else {
-			newNode = new AABBTreeNode(aabb, data, parent, id);
-			capacity = Std.int(capacity * INCREASE_FACTOR);
-			for (i in 0...capacity) freeNodes.push(new AABBTreeNode(ZERO_RECT, null));
+		var left = node.left;
+		var right = node.right;
+		
+		if (node.isLeaf()) {
+			assert(left == null);
+			assert(right == null);
+			node.invHeight = 0;
+			assert(leaves.indexOf(node.id) != -1);
 		}
 		
-		return newNode;
+		assert(left.id >= 0);
+		assert(right.id >= 0);
+		
+		assert(node.invHeight == 1 + Math.max(left.invHeight, right.invHeight));
+		var aabb = new AABB();
+		aabb.asUnionOf(left.aabb, right.aabb);
+		assert(node.aabb.minX == aabb.minX);
+		assert(node.aabb.minY == aabb.minY);
+		assert(node.aabb.maxX == aabb.maxX);
+		assert(node.aabb.maxY == aabb.maxY);
+		
+		validateNode(left.id);
+		validateNode(right.id);
 	}
 	
-	/** Reinserts an unused node into the pool (for future use). */
-	function put(node:AABBTreeNode<T>):Void 
-	{
-		freeNodes.push(node);
-		node.parent = node.left = node.right = null;
-		node.id = -1;
-		node.invHeight = -1;
-		node.data = null;
+	inline static function validate() {
+	#if DEBUG
+		if (root != null) validateNode(root.id);
+	#end
+	}
+	
+	inline static function assert(cond:Bool) {
+	#if DEBUG
+		if (!cond) throw "ASSERT FAILED!";
+	#end
 	}
 }
