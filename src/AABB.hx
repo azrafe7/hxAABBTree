@@ -45,7 +45,11 @@ class AABB
 		return maxY - minY;
 	}
 	
-	/** Creates an AABB from the specified parameters. */
+	/** 
+	 * Creates an AABB from the specified parameters.
+	 * 
+	 * Note: `width` and `height` must be non-negative.
+	 */
 	public function new(x:Float = 0, y:Float = 0, width:Float = 0, height:Float = 0):Void 
 	{
 		minX = x;

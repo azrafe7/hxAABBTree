@@ -1,6 +1,6 @@
 package ;
 
-import IInsertStrategy.InsertBehaviour;
+import IInsertStrategy.InsertChoice;
 
 
 /**
@@ -14,7 +14,7 @@ class InsertStrategyManhattan<T> implements IInsertStrategy<T>
 	
 	public function new() {}
 	
-	public function choose<T>(leafAABB:AABB, parent:AABBTreeNode<T>, ?extraData:Dynamic):InsertBehaviour
+	public function choose<T>(leafAABB:AABB, parent:AABBTreeNode<T>, ?extraData:Dynamic):InsertChoice
 	{
 		var left = parent.left;
 		var right = parent.right;
@@ -34,10 +34,10 @@ class InsertStrategyManhattan<T> implements IInsertStrategy<T>
 		
 		// break/descend according to the minimum cost
 		if (costParent < costLeft && costParent > costRight) {
-			return InsertBehaviour.PARENT;
+			return InsertChoice.PARENT;
 		}
 
 		// descend
-		return costLeft < costRight ? InsertBehaviour.DESCEND_LEFT : InsertBehaviour.DESCEND_RIGHT;
+		return costLeft < costRight ? InsertChoice.DESCEND_LEFT : InsertChoice.DESCEND_RIGHT;
 	}
 }

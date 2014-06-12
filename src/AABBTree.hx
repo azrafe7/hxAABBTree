@@ -3,6 +3,15 @@ package ;
 import AABB;
 import IInsertStrategy;
 
+/**
+ * Values that can be returned from query and raycast callbacks to decide how to proceed.
+ */
+enum HitBehaviour {
+	SKIP;				// continue but don't include in results
+	INCLUDE;			// include and continue (default)
+	INCLUDE_AND_STOP;	// include and break out of the search
+	STOP;				// break out of the search
+}
 
 /**
  * AABBTree implementation. A spatial partitioning data structure.
@@ -18,10 +27,16 @@ class AABBTree<T>
 	public var insertStrategy:IInsertStrategy<T>;
 	
 	/** Total number of nodes. */
-	public var numNodes(default, null):Int = 0;
+	public var numNodes(get, null):Int = 0;
+	inline private function get_numNodes():Int {
+		return nodes.length;
+	}
 	
 	/** Total number of leaves. */
-	public var numLeaves(default, null):Int = 0;
+	public var numLeaves(get, null):Int = 0;
+	inline private function get_numLeaves():Int {
+		return [for (id in leaves.keys()) id].length;
+	}
 	
 	/** Height of the tree. */
 	public var height(get, null):Int;
@@ -41,15 +56,15 @@ class AABBTree<T>
 	/* Cache-friendly array of nodes. Entries are set to null when removed (to be reused later). */
 	var nodes:Array<AABBTreeNode<T>>;
 	
-	/* Indices of leaf nodes for fast access. */
-	var leaves:Array<Int>;
+	/* Set of leaf nodes indices (implement as IntMap - values are the same as keys). */
+	var leaves:Map<Int, Int>;
 
 	
 	/**
 	 * Creates a new AABBTree.
 	 * 
-	 * @param	fattenDelta				How much to fatten the aabb's (to avoid updating them to frequently when the underlying data moves/resizes).
-	 * @param	insertStrategy			Algorithm to use for choosing where to insert a new leaf. Defaults to `InsertStrategyArea`.
+	 * @param	fattenDelta				How much to fatten the aabbs (to avoid updating the nodes too frequently when the underlying data moves/resizes).
+	 * @param	insertStrategy			Strategy to use for choosing where to insert a new leaf. Defaults to `InsertStrategyArea`.
 	 * @param	initialPoolCapacity		How much free nodes to have in the pool initially.
 	 */
 	public function new(fattenDelta:Float = 10, ?insertStrategy:IInsertStrategy<T>, initialPoolCapacity:Int = 16):Void
@@ -59,11 +74,13 @@ class AABBTree<T>
 		pool = new AABBTreeNodePool<T>(initialPoolCapacity);
 		unusedIds = [];
 		nodes = [];
-		leaves = [];
+		leaves = new Map<Int, Int>();
 	}
 	
 	/** 
 	 * Inserts a leaf node with the specified `aabb` values and associated `data`.
+	 * 
+	 * The user must store the returned id and use it later to apply changes to the node (removeLeaf(), updateLeaf()).
 	 * 
 	 * @return The index of the inserted node.
 	 */
@@ -74,9 +91,7 @@ class AABBTree<T>
 		leafNode.aabb.inflate(fattenDelta, fattenDelta);
 		leafNode.invHeight = 0;
 		nodes[leafNode.id] = leafNode;
-		numNodes++;
-		numLeaves++;
-		leaves.push(leafNode.id);
+		leaves[leafNode.id] = leafNode.id;
 		
 		if (root == null) {
 			root = leafNode;
@@ -93,11 +108,11 @@ class AABBTree<T>
 		{
 			switch (insertStrategy.choose(leafAABB, node))
 			{
-				case InsertBehaviour.PARENT:
+				case InsertChoice.PARENT:
 					break;
-				case InsertBehaviour.DESCEND_LEFT:
+				case InsertChoice.DESCEND_LEFT:
 					node = node.left;
-				case InsertBehaviour.DESCEND_RIGHT:
+				case InsertChoice.DESCEND_RIGHT:
 					node = node.right;
 			}
 		}
@@ -110,7 +125,6 @@ class AABBTree<T>
 		var newParent = pool.get(combinedAABB.x, combinedAABB.y, combinedAABB.width, combinedAABB.height, null, oldParent, getNextId());
 		newParent.invHeight = sibling.invHeight + 1;
 		nodes[newParent.id] = newParent;
-		numNodes++;
 
 		// the sibling was not the root
 		if (oldParent != null) {
@@ -171,7 +185,10 @@ class AABBTree<T>
 		
 		var data = leafNode.data;
 		removeLeaf(leafId);
-		insertLeaf(x, y, width, height, data);
+		var newId = insertLeaf(x, y, width, height, data);
+		
+		assert(newId == leafId);
+		
 		return true;
 	}
 	
@@ -183,10 +200,7 @@ class AABBTree<T>
 		var leafNode = nodes[leafId];
 		assert(leafNode.isLeaf());
 		
-		numNodes--;
-		numLeaves--;
-		if (numLeaves > 0) leaves[leaves.indexOf(leafId)] = leaves[numLeaves];
-		else leaves.pop();
+		leaves.remove(leafId);
 		
 		if (leafNode == root) {
 			disposeNode(leafId);
@@ -229,45 +243,101 @@ class AABBTree<T>
 		// destroy parent
 		assert(parent.id != -1);
 		disposeNode(parent.id);
+		disposeNode(leafId);
 		
 		validate();
 	}
 	
-	/** Removes all nodes from the tree. */
+	/** 
+	 * Removes all nodes from the tree. 
+	 * 
+	 * @param	resetPool	If true the internal pool will be reset to its initial capacity.
+	 */
 	public function clear(resetPool:Bool = false)
 	{
-		while (numNodes > 0) {
-			var node = nodes[numNodes - 1];
+		var count = numNodes;
+		while (count > 0) {
+			var node = nodes[count - 1];
 			disposeNode(node.id);
-			numNodes--;
+			count--;
 		}
 		root = null;
-		numLeaves = 0;
-		leaves = [];
+		leaves = new Map<Int, Int>();
 		maxId = 0;
-		unusedIds = [];
 		if (resetPool) pool.reset();
+		
+		assert(numNodes == 0);
 	}
 	
-	/** Rebuild the tree using an optimal (but expensive) strategy. */
+	/** Rebuild the tree using a bottom-up strategy (should result in a better tree, but is expensive). */
 	public function rebuild():Void 
 	{
 		if (root == null) return;
-		
+
 		// free non-leaf nodes
 		for (node in nodes) {
 			if (!node.isLeaf()) {
-				
+				disposeNode(node.id);
+			} else {
+				node.parent = null;
 			}
 		}
 		
+		// copy leaves ids
+		var leafIds = [for (id in leaves.keys()) id];
+		
+		var aabb = new AABB();
+		var count = leafIds.length;
+		while (count > 1) {
+			var minCost = Math.POSITIVE_INFINITY;
+			var iMin = -1;
+			var jMin = -1;
+			
+			// find pair with least perimeter enlargement
+			for (i in 0...count) {
+				var iAABB = nodes[leafIds[i]].aabb;
+
+				for (j in i + 1...count) {
+					var jAABB = nodes[leafIds[j]].aabb;
+					
+					aabb.asUnionOf(iAABB, jAABB);
+					var cost = aabb.getPerimeter();
+					if (cost < minCost) {
+						iMin = i;
+						jMin = j;
+						minCost = cost;
+					}
+				}
+			}
+
+			var left = nodes[leafIds[iMin]];
+			var right = nodes[leafIds[jMin]];
+			aabb.asUnionOf(left.aabb, right.aabb);
+			var parent = pool.get(aabb.x, aabb.y, aabb.width, aabb.height, null, null, getNextId());
+			parent.left = left;
+			parent.right = right;
+			parent.invHeight = Std.int(1 + Math.max(left.invHeight, right.invHeight));
+			nodes[parent.id] = parent;
+			
+			left.parent = parent;
+			right.parent = parent;
+			
+			leafIds[iMin] = parent.id;
+			leafIds[jMin] = leafIds[count - 1];
+			
+			count--;
+		}
+
+		root = nodes[leafIds[0]];
+
+		validate();
 	}
 	
 	/** Returns a list of all the data objects attached to leaves (optionally appending them to `into`). */
 	public function getLeavesData(?into:Array<T>):Array<T>
 	{
 		var res = into != null ? into : [];
-		for (id in leaves) res.push(nodes[id].data);
+		for (id in leaves.keys()) res.push(nodes[id].data);
 		return res;
 	}
 	
@@ -275,11 +345,29 @@ class AABBTree<T>
 	public function getLeavesIds(?into:Array<Int>):Array<Int>
 	{
 		var res = into != null ? into : [];
-		for (id in leaves) res.push(id);
+		for (id in leaves.keys()) res.push(id);
 		return res;
 	}
 	
-	public function query(x:Float, y:Float, width:Float = 0, height:Float = 0, ?into:Array<T>):Array<T>
+	/** Returns data associated to the node with the specified `leafId` (must be a leaf node). */
+	public function getData(leafId:Int):T
+	{
+		var leafNode = nodes[leafId];
+		assert(leafNode.isLeaf());
+		
+		return leafNode.data;
+	}
+	
+	/**
+	 * Queries the tree for objects in the specified AABB.
+	 * 
+	 * @param	into			Hit objects will be appended to this (based on callback return value).
+	 * @param	strictMode		If set to true only objects fully contained in the AABB will be processed. Otherwise they will be checked for intersection (default).
+	 * @param	callback		A function called for every object hit (function callback(data:T, id:Int):HitBehaviour).
+	 * 
+	 * @return A list of all the objects found (or `into` if it was specified).
+	 */
+	public function query(x:Float, y:Float, width:Float = 0, height:Float = 0, strictMode:Bool = false, ?into:Array<T>, ?callback:T->Int->HitBehaviour):Array<T>
 	{
 		var res = into != null ? into : new Array<T>();
 		if (root == null) return res;
@@ -292,8 +380,19 @@ class AABBTree<T>
 			cnt++;
 			
 			if (queryAABB.overlaps(node.aabb)) {
-				if (node.isLeaf()) res.push(node.data);
-				else {
+				if (node.isLeaf() && (!strictMode || (strictMode && queryAABB.contains(node.aabb)))) {
+					if (callback != null) {
+						var hitBehaviour = callback(node.data, node.id);
+						if (hitBehaviour == INCLUDE || hitBehaviour == INCLUDE_AND_STOP) {
+							res.push(node.data);
+						}
+						if (hitBehaviour == STOP || hitBehaviour == INCLUDE_AND_STOP) {
+							break;
+						}
+					} else {
+						res.push(node.data);
+					}
+				} else {
 					if (node.left != null) stack.push(node.left);
 					if (node.right != null) stack.push(node.right);
 				}
@@ -303,14 +402,100 @@ class AABBTree<T>
 		return res;
 	}
 	
+	/**
+	 * Queries the tree for objects crossing the specified ray.
+	 * 
+	 * Notes: 
+	 * 	- the intersecting objects will be returned in no particular order (closest ones to the start point may appear later in the list!).
+	 *  - the callback will also be called if an object fully contains the ray's start and end point.
+	 * 
+	 * TODO: see how this can be optimized and return results in order
+	 * 
+	 * @param	into		Hit objects will be appended to this (based on callback return value).
+	 * @param	callback	A function called for every object hit (function callback(data:T, id:Int):HitBehaviour).
+	 * 
+	 * @return A list of all the objects found (or `into` if it was specified).
+	 */
+	public function rayCast(fromX:Float, fromY:Float, toX:Float, toY:Float, ?into:Array<T>, ?callback:T->Int->HitBehaviour):Array<T>
+	{
+		var res = into != null ? into : new Array<T>();
+		if (root == null) return res;
+		
+		var queryAABBResultsIds = [];
+
+		
+		function rayAABBCallback(data:T, id:Int):HitBehaviour
+		{
+			var node = nodes[id];
+			var aabb = node.aabb;
+			var fromPointAABB = new AABB(fromX, fromY);
+			var toPointAABB = new AABB(toX, toY);
+			
+			var hit = false;
+			for (i in 0...4) {	// test for intersection with node's aabb edges
+				switch (i) {
+					case 0:	// top edge
+						hit = segmentIntersect(fromX, fromY, toX, toY, aabb.minX, aabb.minY, aabb.maxX, aabb.minY);
+					case 1:	// left edge
+						hit = segmentIntersect(fromX, fromY, toX, toY, aabb.minX, aabb.minY, aabb.minX, aabb.maxY);
+					case 2:	// bottom edge
+						hit = segmentIntersect(fromX, fromY, toX, toY, aabb.minX, aabb.maxY, aabb.maxX, aabb.maxY);
+					case 3:	// right edge
+						hit = segmentIntersect(fromX, fromY, toX, toY, aabb.maxX, aabb.minY, aabb.maxX, aabb.maxY);
+					default:	
+				}
+				if (hit) break;
+			}
+			
+			// add intersected node id to array
+			if (hit || (!hit && aabb.contains(fromPointAABB))) {
+				queryAABBResultsIds.push(id);
+			}
+			
+			return SKIP;	// don't bother adding to results
+		}
+		
+		var tmp:Float;
+		var rayAABB = new AABB(fromX, fromY, toX - fromX, toY - fromY);
+		if (rayAABB.minX > rayAABB.maxX) {
+			tmp = rayAABB.maxX;
+			rayAABB.maxX = rayAABB.minX;
+			rayAABB.minX = tmp;
+		}
+		if (rayAABB.minY > rayAABB.maxY) {
+			tmp = rayAABB.maxY;
+			rayAABB.maxY = rayAABB.minY;
+			rayAABB.minY = tmp;
+		}
+		
+		query(rayAABB.x, rayAABB.y, rayAABB.width , rayAABB.height, false, null, rayAABBCallback);
+		
+		for (id in queryAABBResultsIds) {
+			var node = nodes[id];
+			if (callback != null) {
+				var hitBehaviour = callback(node.data, node.id);
+				if (hitBehaviour == INCLUDE || hitBehaviour == INCLUDE_AND_STOP) {
+					res.push(node.data);
+				}
+				if (hitBehaviour == STOP || hitBehaviour == INCLUDE_AND_STOP) {
+					break;
+				}
+			} else {
+				res.push(node.data);
+			}
+		}
+		
+		return res;
+	}
+	
 	/** Gets the next available id for a node, fecthing it from the list of unused ones if available. */
 	private function getNextId():Int 
 	{
-		var newId = unusedIds.length > 0 ? unusedIds.pop() : maxId++;
+		var newId = unusedIds.length > 0 && unusedIds[unusedIds.length - 1] < maxId ? unusedIds.pop() : maxId++;
 		return newId;
 	}
 	
-	/** Returns the node with the specified `id` to the pool. Note that it does NOT decrement `numNodes`. */
+	/** Returns the node with the specified `id` to the pool. */
 	private function disposeNode(id:Int) {
 		assert(nodes[id] != null);
 
@@ -493,7 +678,7 @@ class AABBTree<T>
 			assert(left == null);
 			assert(right == null);
 			node.invHeight = 0;
-			assert(leaves.indexOf(node.id) != -1);
+			assert(leaves[node.id] >= 0);
 		}
 		
 		assert(left.id >= 0);
@@ -510,6 +695,43 @@ class AABBTree<T>
 		validateNode(left.id);
 		validateNode(right.id);
 	}
+	
+	static private function segmentIntersect(p0x:Float, p0y:Float, p1x:Float, p1y:Float, q0x:Float, q0y:Float, q1x:Float, q1y:Float):Bool
+	{
+		var intX:Float, intY:Float;
+		var a1:Float, a2:Float;
+		var b1:Float, b2:Float;
+		var c1:Float, c2:Float;
+	 
+		a1 = p1y - p0y;
+		b1 = p0x - p1x;
+		c1 = p1x * p0y - p0x * p1y;
+		a2 = q1y - q0y;
+		b2 = q0x - q1x;
+		c2 = q1x * q0y - q0x * q1y;
+	 
+		var denom:Float = a1 * b2 - a2 * b1;
+		if (denom == 0){
+			return false;
+		}
+		
+		intX = (b1 * c2 - b2 * c1) / denom;
+		intY = (a2 * c1 - a1 * c2) / denom;
+	 
+		// check to see if distance between intersection and endpoints
+		// is longer than actual segments.
+		// return false otherwise.
+		if (distanceSquared(intX, intY, p1x, p1y) > distanceSquared(p0x, p0y, p1x, p1y)) return false;
+		if (distanceSquared(intX, intY, p0x, p0y) > distanceSquared(p0x, p0y, p1x, p1y)) return false;
+		if (distanceSquared(intX, intY, q1x, q1y) > distanceSquared(q0x, q0y, q1x, q1y)) return false;
+		if (distanceSquared(intX, intY, q0x, q0y) > distanceSquared(q0x, q0y, q1x, q1y)) return false;
+		
+		return true;
+	}
+	
+	inline static private function distanceSquared(px:Float, py:Float, qx:Float, qy:Float):Float { return sqr(px - qx) + sqr(py - qy); }
+	
+	inline static private function sqr(x:Float):Float { return x * x; }
 	
 	inline static function validate() {
 	#if DEBUG

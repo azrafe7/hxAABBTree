@@ -5,7 +5,7 @@
 	<app main="Test" path="bin" file="AABBTreeTest" />
 	
 	<window background="#222222" fps="60" />
-	<window width="800" height="500" unless="mobile" />
+	<window width="800" height="460" unless="mobile" />
 	<window orientation="landscape" vsync="false" antialiasing="0" if="cpp" />
 	
 	<haxeflag name="--no-traces" if="release" />
