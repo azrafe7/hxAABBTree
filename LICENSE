@@ -1,3 +1,14 @@
+This file is part of the AABBTree library for haxe (https://github.com/azrafe7/AABBTree).
+
+Developed by Giuseppe Di Mauro (aka azrafe7) and realeased under the MIT license (see below).
+ 
+The code is heavily inspired by the implementations of a dynamic AABB tree by 
+
+ - Nathanael Presson 	(Bullet Physics - http://bulletphysics.org)
+ - Erin Catto 			(Box2D - http://www.box2d.org)
+
+
+
 The MIT License (MIT)
 
 Copyright (c) 2014 Giuseppe Di Mauro (aka azrafe7)

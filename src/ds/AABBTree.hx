@@ -1,7 +1,23 @@
-package ;
+/*
+ * This file is part of the AABBTree library for haxe (https://github.com/azrafe7/AABBTree).
+ * 
+ * Developed by Giuseppe Di Mauro (aka azrafe7) and realeased under the MIT license (see LICENSE file).
+ * 
+ * The code is heavily inspired by the implementations of a dynamic AABB tree by 
+ * 
+ *  - Nathanael Presson 	(Bullet Physics - http://bulletphysics.org)
+ *	- Erin Catto 			(Box2D - http://www.box2d.org)
+ */
 
-import AABB;
-import IInsertStrategy;
+package ds;
+
+import ds.AABB;
+import ds.aabbtree.DebugRenderer;
+import ds.aabbtree.Node;
+import ds.aabbtree.NodePool;
+import ds.aabbtree.IInsertStrategy;
+import ds.aabbtree.InsertStrategyArea;
+
 
 /**
  * Values that can be returned from query and raycast callbacks to decide how to proceed.
@@ -18,6 +34,7 @@ enum HitBehaviour {
  * 
  * @author azrafe7
  */
+@:allow(ds.aabbtree.DebugRenderer)
 class AABBTree<T>
 {
 	/** How much to fatten the aabb. */
@@ -47,14 +64,14 @@ class AABBTree<T>
 	
 	
 	/* Pooled nodes stuff. */
-	var pool:AABBTreeNodePool<T>;
+	var pool:NodePool<T>;
 	var maxId:Int = 0;
 	var unusedIds:Array<Int>;
 	
-	var root:AABBTreeNode<T> = null;
+	var root:Node<T> = null;
 	
 	/* Cache-friendly array of nodes. Entries are set to null when removed (to be reused later). */
-	var nodes:Array<AABBTreeNode<T>>;
+	var nodes:Array<Node<T>>;
 	
 	/* Set of leaf nodes indices (implement as IntMap - values are the same as keys). */
 	var leaves:Map<Int, Int>;
@@ -71,7 +88,7 @@ class AABBTree<T>
 	{
 		this.fattenDelta = fattenDelta;
 		this.insertStrategy = insertStrategy != null ? insertStrategy : new InsertStrategyArea<T>();
-		pool = new AABBTreeNodePool<T>(initialPoolCapacity);
+		pool = new NodePool<T>(initialPoolCapacity);
 		unusedIds = [];
 		nodes = [];
 		leaves = new Map<Int, Int>();
@@ -101,8 +118,8 @@ class AABBTree<T>
 		// find best sibling to insert the leaf
 		var leafAABB = leafNode.aabb;
 		var combinedAABB = new AABB();
-		var left:AABBTreeNode<T>;
-		var right:AABBTreeNode<T>;
+		var left:Node<T>;
+		var right:Node<T>;
 		var node = root;
 		while (!node.isLeaf())
 		{
@@ -559,7 +576,7 @@ class AABBTree<T>
 	 *             / \
 	 *            F   G
 	 */
-	private function rotateLeft(parentNode:AABBTreeNode<T>, leftNode:AABBTreeNode<T>, rightNode:AABBTreeNode<T>):Int
+	private function rotateLeft(parentNode:Node<T>, leftNode:Node<T>, rightNode:Node<T>):Int
 	{
 		var F = rightNode.left;
 		var G = rightNode.right;
@@ -612,7 +629,7 @@ class AABBTree<T>
 	 *       / \
 	 *      D   E
 	 */
-	private function rotateRight(parentNode:AABBTreeNode<T>, leftNode:AABBTreeNode<T>, rightNode:AABBTreeNode<T>):Int
+	private function rotateRight(parentNode:Node<T>, leftNode:Node<T>, rightNode:Node<T>):Int
 	{
 		var D = leftNode.left;
 		var E = leftNode.right;
@@ -659,7 +676,7 @@ class AABBTree<T>
 		return leftNode.id;
 	}
 	
-	private function getNode(id:Int):AABBTreeNode<T> 
+	private function getNode(id:Int):Node<T> 
 	{
 		assert(id >= 0 && nodes[id] != null);
 		return nodes[id];

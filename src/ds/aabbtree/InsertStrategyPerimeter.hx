@@ -1,6 +1,12 @@
-package ;
+/*
+ * This file is part of the AABBTree library for haxe (https://github.com/azrafe7/AABBTree).
+ *
+ * Developed by Giuseppe Di Mauro (aka azrafe7) and realeased under the MIT license (see LICENSE file).
+ */
 
-import IInsertStrategy.InsertChoice;
+package ds.aabbtree;
+
+import ds.aabbtree.IInsertStrategy.InsertChoice;
 
 
 /**
@@ -14,7 +20,7 @@ class InsertStrategyPerimeter<T> implements IInsertStrategy<T>
 	
 	public function new() {}
 	
-	public function choose<T>(leafAABB:AABB, parent:AABBTreeNode<T>, ?extraData:Dynamic):InsertChoice
+	public function choose<T>(leafAABB:AABB, parent:Node<T>, ?extraData:Dynamic):InsertChoice
 	{
 		var left = parent.left;
 		var right = parent.right;

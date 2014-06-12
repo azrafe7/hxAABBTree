@@ -1,4 +1,10 @@
-package ;
+/*
+ * This file is part of the AABBTree library for haxe (https://github.com/azrafe7/AABBTree).
+ *
+ * Developed by Giuseppe Di Mauro (aka azrafe7) and realeased under the MIT license (see LICENSE file).
+ */
+
+package ds;
 
 
 /**

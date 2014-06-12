@@ -1,6 +1,9 @@
 package;
 
 
+import ds.AABBTree;
+import ds.aabbtree.InsertStrategyArea;
+import ds.aabbtree.DebugRenderer;
 import flash.display.Bitmap;
 import flash.display.BitmapData;
 import flash.display.Graphics;
@@ -22,11 +25,11 @@ import haxe.Log;
 import haxe.PosInfos;
 import haxe.Timer;
 import openfl.display.FPS;
-import AABBTree.HitBehaviour;
 
 
-@:access(AABBTree)
-@:access(AABBTreeNode)
+
+@:access(ds.AABBTree)
+@:access(ds.aabbtree.Node)
 class Test extends Sprite {
 
 	private var TEXT_COLOR:Int = 0xFFFFFFFF;

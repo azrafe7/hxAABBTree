@@ -1,33 +1,45 @@
-package ;
-
-/**
- * ...
- * @author azrafe7
+/*
+ * This file is part of the AABBTree library for haxe (https://github.com/azrafe7/AABBTree).
+ * 
+ * Developed by Giuseppe Di Mauro (aka azrafe7) and realeased under the MIT license (see LICENSE file).
+ * 
+ * The code is heavily inspired by the implementations of a dynamic AABB tree by 
+ * 
+ *  - Nathanael Presson 	(Bullet Physics - http://bulletphysics.org)
+ *	- Erin Catto 			(Box2D - http://www.box2d.org)
  */
 
-@:allow(AABBTree)
-class AABBTreeNodePool<T>
+package ds.aabbtree;
+
+/**
+ * Node pool used by AABBTree.
+ * 
+ * @author azrafe7
+ */
+@:publicFields
+class NodePool<T>
 {
 	/** The pool will grow by this factor when it's empty. */
-	var GROWTH_FACTOR:Float = 1.5;
+	var growthFactor:Float;
 	
 	/** Initial capacity of the pool. */
 	var capacity:Int;
 	
-	var freeNodes:Array<AABBTreeNode<T>>;
+	var freeNodes:Array<Node<T>>;
 	
 	
-	function new(capacity:Int)
+	function new(capacity:Int, growthFactor:Float = 1.5)
 	{
 		this.capacity = capacity;
-		freeNodes = new Array<AABBTreeNode<T>>();
-		for (i in 0...capacity) freeNodes.push(new AABBTreeNode(new AABB(), null));
+		this.growthFactor = growthFactor;
+		freeNodes = new Array<Node<T>>();
+		for (i in 0...capacity) freeNodes.push(new Node(new AABB(), null));
 	}
 	
 	/** Fetches a node from the pool (if available) or creates a new one. */
-	function get(x:Float, y:Float, width:Float = 0, height:Float = 0, ?data:T, parent:AABBTreeNode<T> = null, id:Int = -1):AABBTreeNode<T>
+	function get(x:Float, y:Float, width:Float = 0, height:Float = 0, ?data:T, parent:Node<T> = null, id:Int = -1):Node<T>
 	{
-		var newNode:AABBTreeNode<T>;
+		var newNode:Node<T>;
 		
 		if (freeNodes.length > 0) {
 			newNode = freeNodes.pop();
@@ -36,8 +48,8 @@ class AABBTreeNodePool<T>
 			newNode.parent = parent;
 			newNode.id = id;
 		} else {
-			newNode = new AABBTreeNode(new AABB(x, y, width, height), data, parent, id);
-			capacity = Std.int(capacity * GROWTH_FACTOR);
+			newNode = new Node(new AABB(x, y, width, height), data, parent, id);
+			capacity = Std.int(capacity * growthFactor);
 			grow(capacity);
 		}
 		
@@ -45,7 +57,7 @@ class AABBTreeNodePool<T>
 	}
 	
 	/** Reinserts an unused node into the pool (for future use). */
-	function put(node:AABBTreeNode<T>):Void 
+	function put(node:Node<T>):Void 
 	{
 		freeNodes.push(node);
 		node.parent = node.left = node.right = null;
@@ -67,7 +79,7 @@ class AABBTreeNodePool<T>
 		if (n <= len) return;
 		
 		for (i in len...n) {
-			freeNodes.push(new AABBTreeNode(new AABB(), null));
+			freeNodes.push(new Node(new AABB(), null));
 		}
 	}
 }
