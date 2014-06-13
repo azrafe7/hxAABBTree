@@ -282,6 +282,7 @@ class AABBTreeTest extends Sprite {
 				queryRect.height = startPoint.y - endPoint.y;
 				queryRect.y = endPoint.y;
 			}
+			redraw = true;
 		}
 	}
 	
