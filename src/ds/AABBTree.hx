@@ -43,17 +43,15 @@ class AABBTree<T>
 	/** Algorithm to use for choosing where to insert a new leaf. */
 	public var insertStrategy:IInsertStrategy<T>;
 	
-	/** Total number of nodes. */
+	/** Total number of nodes (includes unused ones). */
 	public var numNodes(get, null):Int = 0;
-	inline private function get_numNodes():Int {
+	private function get_numNodes():Int 
+	{
 		return nodes.length;
 	}
 	
 	/** Total number of leaves. */
-	public var numLeaves(get, null):Int = 0;
-	inline private function get_numLeaves():Int {
-		return [for (id in leaves.keys()) id].length;
-	}
+	public var numLeaves(default, null):Int = 0;
 	
 	/** Height of the tree. */
 	public var height(get, null):Int;
@@ -109,6 +107,7 @@ class AABBTree<T>
 		leafNode.invHeight = 0;
 		nodes[leafNode.id] = leafNode;
 		leaves[leafNode.id] = leafNode.id;
+		numLeaves++;
 		
 		if (root == null) {
 			root = leafNode;
@@ -275,11 +274,13 @@ class AABBTree<T>
 		var count = numNodes;
 		while (count > 0) {
 			var node = nodes[count - 1];
-			disposeNode(node.id);
+			if (node != null) disposeNode(node.id);
 			count--;
 		}
 		root = null;
+		nodes = [];
 		leaves = new Map<Int, Int>();
+		unusedIds = [];
 		maxId = 0;
 		if (resetPool) pool.reset();
 		
@@ -373,6 +374,15 @@ class AABBTree<T>
 		assert(leafNode.isLeaf());
 		
 		return leafNode.data;
+	}
+	
+	/** Returns a clone of the aabb associated to the node with the specified `leafId` (must be a leaf node). */
+	public function getFatAABB(leafId:Int):AABB
+	{
+		var leafNode = nodes[leafId];
+		assert(leafNode.isLeaf());
+		
+		return leafNode.aabb.clone();
 	}
 	
 	/**
@@ -517,6 +527,7 @@ class AABBTree<T>
 		assert(nodes[id] != null);
 
 		var node = nodes[id];
+		if (node.isLeaf()) numLeaves--;
 		nodes[node.id] = null;
 		unusedIds.push(node.id);
 		pool.put(node);
@@ -696,6 +707,7 @@ class AABBTree<T>
 			assert(right == null);
 			node.invHeight = 0;
 			assert(leaves[node.id] >= 0);
+			return;
 		}
 		
 		assert(left.id >= 0);
@@ -749,16 +761,28 @@ class AABBTree<T>
 	inline static private function distanceSquared(px:Float, py:Float, qx:Float, qy:Float):Float { return sqr(px - qx) + sqr(py - qy); }
 	
 	inline static private function sqr(x:Float):Float { return x * x; }
+
 	
-	inline static function validate() {
-	#if DEBUG
+#if debug
+
+	function validate() {
 		if (root != null) validateNode(root.id);
-	#end
+		assert(numLeaves >= 0 && numLeaves <= numNodes);
+	}
+	
+	static function assert(cond:Bool) {
+		if (!cond) throw "ASSERT FAILED!";
+	}
+	
+#else
+
+	inline function validate() {
+		return;
 	}
 	
 	inline static function assert(cond:Bool) {
-	#if DEBUG
-		if (!cond) throw "ASSERT FAILED!";
-	#end
+		return;
 	}
+	
+#end
 }

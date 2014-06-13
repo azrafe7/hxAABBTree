@@ -41,6 +41,7 @@ class AABBTreeTest extends Sprite {
 	var QUERY_COLOR:Int = 0xFFCC00;
 	var RESULTS_COLOR:Int = 0xFFFF00;
 	var RESULTS_ALPHA:Float = .5;
+	var SPEED = 6;
 	
 	var stageWidth:Int;
 	var stageHeight:Int;
@@ -51,13 +52,14 @@ class AABBTreeTest extends Sprite {
 	var tree:AABBTree<Rectangle>;
 	var renderer:CustomRenderer<Rectangle>;
 	var results:Array<Rectangle> = [];
-	var lastQueryInfo:{time:Float, found:Int} = null;
-
+	var lastQueryInfo: { time:Float, found:Int } = null;
+	
 	var startPoint:Point = new Point();
 	var endPoint:Point = new Point();
 	var queryRect:Rectangle = new Rectangle();
 	var strictMode:Bool = true;
 	var rayMode:Bool = false;
+	var animMode:Bool = false;
 	var dragging:Bool = false;
 
 	var redraw:Bool = true;
@@ -92,7 +94,7 @@ class AABBTreeTest extends Sprite {
 			tree.insertLeaf(r.x, r.y, r.width, r.height, r);
 		}
 		
-		overlaySprite.addChild(text = getTextField("invHeight: " + tree.root.invHeight, stageWidth - 230, 5));
+		overlaySprite.addChild(text = getTextField("", stageWidth - 230, 5));
 		overlaySprite.addChild(fps = new FPS(5, 5, 0xFFFFFF));
 		fps.visible = false;
 		
@@ -130,6 +132,13 @@ class AABBTreeTest extends Sprite {
 		return value;
 	}
 	
+	public function fclamp(value:Float, min:Float, max:Float):Float 
+	{
+		if (value < min) return min;
+		else if (value > max) return max;
+		return value;
+	}
+	
 	public function getRandomRect():Rectangle
 	{
 		return new Rectangle(Math.random() * stageWidth * .5 + 25, Math.random() * stageHeight * .6 + 25, Math.random() * 100 + 10, Math.random() * 100 + 10);
@@ -145,6 +154,9 @@ class AABBTreeTest extends Sprite {
 			renderer.maxLevel += e.keyCode == UP ? 1 : -1;
 			renderer.maxLevel = clamp(renderer.maxLevel, 0, tree.height);
 			syncMaxLevel = false;
+			redraw = true;
+		} else if (e.keyCode == "C".code) {		// clear tree
+			tree.clear();
 			redraw = true;
 		} else if (e.keyCode == "B".code) {		// rebuild tree bottom-up
 			tree.rebuild();
@@ -164,10 +176,16 @@ class AABBTreeTest extends Sprite {
 			redraw = true;
 		} else if (e.keyCode == "S".code) {		// toggle strictMode
 			strictMode = !strictMode;
+			if (!animMode) query();
 		} else if (e.keyCode == "R".code) {		// toggle rayMode
 			rayMode	= !rayMode;
+			if (!animMode) query();
+			redraw = true;
 		} else if (e.keyCode == "L".code) {		// toggle leafOnly rendering
 			renderer.leafOnly = !renderer.leafOnly;
+			redraw = true;
+		} else if (e.keyCode == "A".code) {		// toggle animMode
+			animMode = !animMode;
 			redraw = true;
 		}
 		
@@ -176,6 +194,12 @@ class AABBTreeTest extends Sprite {
 	
 	public function onEnterFrame(_):Void 
 	{
+		if (animMode) {
+			redraw = true;
+			animate();
+			query();
+		}
+		
 		if (redraw) {
 			g.clear();
 			renderer.drawTree(tree);
@@ -196,6 +220,21 @@ class AABBTreeTest extends Sprite {
 		updateText();
 	}
 	
+	public function animate():Void 
+	{
+		var ids = tree.getLeavesIds();
+		for (id in ids) {
+			var rect = tree.getData(id);
+			rect.x += Math.random() * SPEED * 2 - SPEED;
+			rect.y += Math.random() * SPEED * 2 - SPEED;
+			rect.width += Math.random() * SPEED - SPEED * .5;
+			rect.height += Math.random() * SPEED - SPEED * .5;
+			if (rect.width < 0) rect.width = 0;
+			if (rect.height < 0) rect.height = 0;
+			tree.updateLeaf(id, rect.x, rect.y, rect.width, rect.height);
+		}
+	}
+	
 	public function updateText():Void 
 	{
 		var mem = System.totalMemory / 1024 / 1024;
@@ -207,10 +246,12 @@ class AABBTreeTest extends Sprite {
 			"height           : " + tree.height + "\n\n" +
 			"[R] rayMode      : " + (rayMode ? "ON" : "OFF") + "\n" +
 			"[S] strictMode   : " + (strictMode ? "ON" : "OFF") + "\n" +
-			"[L] leafOnly     : " + (renderer.leafOnly ? "ON" : "OFF") + "\n\n" +
+			"[L] leafOnly     : " + (renderer.leafOnly ? "ON" : "OFF") + "\n" +
+			"[A] animMode     : " + (animMode ? "ON" : "OFF") + "\n\n" +
 			"[RIGHT/LEFT] add/remove leaf\n" + 
 			"[UP/DOWN]    inc/dec maxLevel\n" +
-			"[B]          rebuild tree\n\n";
+			"[B]          rebuild tree\n" +
+			"[C]          clear tree\n\n";
 			
 		if (lastQueryInfo != null) {
 			text.text +=
@@ -261,7 +302,11 @@ class AABBTreeTest extends Sprite {
 	public function onMouseUp(e:MouseEvent):Void 
 	{
 		dragging = false;
-		
+		query();
+	}
+	
+	public function query():Void 
+	{
 		var startTime = Timer.stamp();
 		if (rayMode) results = tree.rayCast(startPoint.x, startPoint.y, endPoint.x, endPoint.y, null, rayCallback);
 		else results = tree.query(queryRect.x, queryRect.y, queryRect.width, queryRect.height, strictMode);
