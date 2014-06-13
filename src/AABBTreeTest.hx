@@ -176,10 +176,9 @@ class AABBTreeTest extends Sprite {
 			redraw = true;
 		} else if (e.keyCode == "S".code) {		// toggle strictMode
 			strictMode = !strictMode;
-			if (!animMode) query();
+			redraw = true;
 		} else if (e.keyCode == "R".code) {		// toggle rayMode
 			rayMode	= !rayMode;
-			if (!animMode) query();
 			redraw = true;
 		} else if (e.keyCode == "L".code) {		// toggle leafOnly rendering
 			renderer.leafOnly = !renderer.leafOnly;
@@ -197,10 +196,10 @@ class AABBTreeTest extends Sprite {
 		if (animMode) {
 			redraw = true;
 			animate();
-			query();
 		}
 		
 		if (redraw) {
+			query();
 			g.clear();
 			renderer.drawTree(tree);
 		}
@@ -227,10 +226,12 @@ class AABBTreeTest extends Sprite {
 			var rect = tree.getData(id);
 			rect.x += Math.random() * SPEED * 2 - SPEED;
 			rect.y += Math.random() * SPEED * 2 - SPEED;
-			rect.width += Math.random() * SPEED - SPEED * .5;
-			rect.height += Math.random() * SPEED - SPEED * .5;
-			if (rect.width < 0) rect.width = 0;
-			if (rect.height < 0) rect.height = 0;
+			if (rect.width > 0 && rect.height > 0) {
+				rect.width += Math.random() * SPEED - SPEED * .5;
+				rect.height += Math.random() * SPEED - SPEED * .5;
+				if (rect.width < 0) rect.width = 0;
+				if (rect.height < 0) rect.height = 0;
+			}
 			tree.updateLeaf(id, rect.x, rect.y, rect.width, rect.height);
 		}
 	}
@@ -302,7 +303,7 @@ class AABBTreeTest extends Sprite {
 	public function onMouseUp(e:MouseEvent):Void 
 	{
 		dragging = false;
-		query();
+		redraw = true;
 	}
 	
 	public function query():Void 

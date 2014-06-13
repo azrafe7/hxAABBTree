@@ -17,7 +17,7 @@ class CustomRenderer<T> extends OpenFLRenderer<T>
 	public var maxLevel:Int = 1000000;
 	
 	// draw only leaf nodes.
-	public var leafOnly:Bool = false;
+	public var leafOnly:Bool = true;
 
 	
 	public function new(g:Graphics) 
