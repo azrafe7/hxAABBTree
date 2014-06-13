@@ -15,16 +15,18 @@ import flash.display.Graphics;
  * 
  * @author azrafe7
  */
-class OpenFLRenderer extends DebugRenderer
+class OpenFLRenderer<T> extends DebugRenderer<T>
 {
 	var g:Graphics;
 	
 	var colorByLevel:Int->Int;
 	var leafColor:Int;
-	var alpha:Int;
+	var leafAlpha:Float;
+	var internalAlpha:Float;
 	var connectToParent:Bool;
 	
-	var colorMap:Array<Int> = [0xFF0000];
+	var colorMap:Map<Int, Int> = [0 => 0xFF0000];
+	var HSV:Array<Float> = [.1, .9, 1];
 
 	
 	/**
@@ -33,15 +35,18 @@ class OpenFLRenderer extends DebugRenderer
 	 * @param	g					The graphics to be uses to render the tree.
 	 * @param	colorByLevel		A function mapping a level of the tree to the color to be used to draw the related aabbs.
 	 * @param	leafColor			Color to use to draw the leaf aabbs.
-	 * @param	alpha				Alpha value to use when drawing aabbs.
+	 * @param	leafAlpha			Alpha value to use when drawing leaf aabbs.
+	 * @param	internalAlpha		Alpha value to use when drawing non-leaf aabbs.
 	 * @param	connectToParent		Wether a line should be drawn that connects children to their parent aabbs.
 	 */
-	public function new(g:Graphics, ?colorByLevel:Int->Int, leafColor:Int = 0x808080, alpha:Float = .6, connectToParent:Bool = true) 
+	public function new(g:Graphics, ?colorByLevel:Int->Int, leafColor:Int = 0xFFFFFF, leafAlpha:Float = .1, internalAlpha:Float = .7, connectToParent:Bool = true) 
 	{
+		super();
 		this.g = g;
-		this.colorByLevel != null ? colorByLevel : _colorByLevel;
+		this.colorByLevel = colorByLevel != null ? colorByLevel : _colorByLevel;
 		this.leafColor = leafColor;
-		this.alpha = alpha;
+		this.leafAlpha = leafAlpha;
+		this.internalAlpha = internalAlpha;
 		this.connectToParent = connectToParent;
 	}
 	
@@ -49,8 +54,8 @@ class OpenFLRenderer extends DebugRenderer
 	{
 		var color = isLeaf ? leafColor : colorByLevel(level);
 		
-		g.lineStyle(1, color, alpha);
-		if (isLeaf) g.beginFill(color);
+		g.lineStyle(isLeaf ? 1 : 2, color, isLeaf ? leafAlpha : internalAlpha);
+		if (isLeaf) g.beginFill(color, leafAlpha);
 		g.drawRect(aabb.x, aabb.y, aabb.width, aabb.height);
 		if (isLeaf) g.endFill();
 	}
@@ -60,34 +65,43 @@ class OpenFLRenderer extends DebugRenderer
 		super.drawNode(node, isLeaf, level);
 		if (connectToParent) {
 			var color = isLeaf ? leafColor : colorByLevel(level);
-			if (parent != null) {
-				g.lineStyle(1, color);
+			if (node.parent != null) {
+				g.lineStyle(1, color, internalAlpha);
 				g.moveTo(node.aabb.x, node.aabb.y);
-				g.lineTo(node.parent.x, node.parent.y);
+				g.lineTo(node.parent.aabb.x, node.parent.aabb.y);
+				g.drawCircle(node.parent.aabb.x, node.parent.aabb.y, 2);
 			}
 		}
 	}
 	
 	private function _colorByLevel(level:Int):Int 
 	{
-		if (colorMap.length <= level) {
-			colorMap[level] = randomColor(colorMap[0]);
+		if (colorMap.get(level) == null) {
+			HSV[0] = (HSV[0] + .12) % 1.0;
+			colorMap[level] = getColorFromHSV(HSV[0], HSV[1], HSV[2]);
 		}
 		
 		return colorMap[level];
 	}
 	
-	// from http://stackoverflow.com/questions/43044/algorithm-to-randomly-generate-an-aesthetically-pleasing-color-palette
-	private function randomColor(color:Int):Int
+	private function getColorFromHSV(h:Float, s:Float, v:Float):Int
 	{
-		var r = Std.int(Math.random() * 256);
-		var g = Std.int(Math.random() * 256);
-		var b = Std.int(Math.random() * 256);
-
-		r = (r + ((color >> 16) & 0xFF)) >> 1;
-		g = (g + ((color >> 8) & 0xFF)) >> 1;
-		b = (b + (color & 0xFF)) >> 1;
-		
-		return ((r << 16) | (g << 8) | b);
+		h = Std.int(h * 360);
+		var hi:Int = Math.floor(h / 60) % 6,
+			f:Float = h / 60 - Math.floor(h / 60),
+			p:Float = (v * (1 - s)),
+			q:Float = (v * (1 - f * s)),
+			t:Float = (v * (1 - (1 - f) * s));
+		switch (hi)
+		{
+			case 0: return Std.int(v * 255) << 16 | Std.int(t * 255) << 8 | Std.int(p * 255);
+			case 1: return Std.int(q * 255) << 16 | Std.int(v * 255) << 8 | Std.int(p * 255);
+			case 2: return Std.int(p * 255) << 16 | Std.int(v * 255) << 8 | Std.int(t * 255);
+			case 3: return Std.int(p * 255) << 16 | Std.int(q * 255) << 8 | Std.int(v * 255);
+			case 4: return Std.int(t * 255) << 16 | Std.int(p * 255) << 8 | Std.int(v * 255);
+			case 5: return Std.int(v * 255) << 16 | Std.int(p * 255) << 8 | Std.int(q * 255);
+			default: return 0;
+		}
+		return 0;
 	}
 }

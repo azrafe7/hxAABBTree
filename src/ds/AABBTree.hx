@@ -415,7 +415,7 @@ class AABBTree<T>
 				}
 			}
 		}
-		trace("examined: " + cnt);
+		//trace("examined: " + cnt);
 		return res;
 	}
 	

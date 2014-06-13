@@ -2,10 +2,10 @@
 <project>
 	
 	<meta title="Test" package="net.azrafe7.hxAABBTree" version="1.0.0" company="azrafe7" />
-	<app main="Test" path="bin" file="AABBTreeTest" />
+	<app main="AABBTreeTest" path="bin" file="AABBTreeTest" />
 	
-	<window background="#222222" fps="60" />
-	<window width="800" height="460" unless="mobile" />
+	<window background="#101010" fps="30" />
+	<window width="800" height="420" unless="mobile" />
 	<window orientation="landscape" vsync="false" antialiasing="0" if="cpp" />
 	
 	<haxeflag name="--no-traces" if="release" />
