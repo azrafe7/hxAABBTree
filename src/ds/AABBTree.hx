@@ -16,7 +16,7 @@ import ds.aabbtree.DebugRenderer;
 import ds.aabbtree.Node;
 import ds.aabbtree.NodePool;
 import ds.aabbtree.IInsertStrategy;
-import ds.aabbtree.InsertStrategyArea;
+import ds.aabbtree.InsertStrategyPerimeter;
 
 
 /**
@@ -79,13 +79,13 @@ class AABBTree<T>
 	 * Creates a new AABBTree.
 	 * 
 	 * @param	fattenDelta				How much to fatten the aabbs (to avoid updating the nodes too frequently when the underlying data moves/resizes).
-	 * @param	insertStrategy			Strategy to use for choosing where to insert a new leaf. Defaults to `InsertStrategyArea`.
+	 * @param	insertStrategy			Strategy to use for choosing where to insert a new leaf. Defaults to `InsertStrategyPerimeter`.
 	 * @param	initialPoolCapacity		How much free nodes to have in the pool initially.
 	 */
 	public function new(fattenDelta:Float = 10, ?insertStrategy:IInsertStrategy<T>, initialPoolCapacity:Int = 16):Void
 	{
 		this.fattenDelta = fattenDelta;
-		this.insertStrategy = insertStrategy != null ? insertStrategy : new InsertStrategyArea<T>();
+		this.insertStrategy = insertStrategy != null ? insertStrategy : new InsertStrategyPerimeter<T>();
 		pool = new NodePool<T>(initialPoolCapacity);
 		unusedIds = [];
 		nodes = [];
@@ -260,6 +260,8 @@ class AABBTree<T>
 		assert(parent.id != -1);
 		disposeNode(parent.id);
 		disposeNode(leafId);
+		
+		assert(numLeaves == [for (k in leaves.keys()) k].length);
 		
 		validate();
 	}
@@ -716,10 +718,10 @@ class AABBTree<T>
 		assert(node.invHeight == 1 + Math.max(left.invHeight, right.invHeight));
 		var aabb = new AABB();
 		aabb.asUnionOf(left.aabb, right.aabb);
-		assert(node.aabb.minX == aabb.minX);
-		assert(node.aabb.minY == aabb.minY);
-		assert(node.aabb.maxX == aabb.maxX);
-		assert(node.aabb.maxY == aabb.maxY);
+		assert(Math.abs(node.aabb.minX - aabb.minX) < 0.000001);
+		assert(Math.abs(node.aabb.minY - aabb.minY) < 0.000001);
+		assert(Math.abs(node.aabb.maxX - aabb.maxX) < 0.000001);
+		assert(Math.abs(node.aabb.maxY - aabb.maxY) < 0.000001);
 		
 		validateNode(left.id);
 		validateNode(right.id);

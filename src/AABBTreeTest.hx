@@ -132,13 +132,6 @@ class AABBTreeTest extends Sprite {
 		return value;
 	}
 	
-	public function fclamp(value:Float, min:Float, max:Float):Float 
-	{
-		if (value < min) return min;
-		else if (value > max) return max;
-		return value;
-	}
-	
 	public function getRandomRect():Rectangle
 	{
 		return new Rectangle(Math.random() * stageWidth * .5 + 25, Math.random() * stageHeight * .6 + 25, Math.random() * 100 + 10, Math.random() * 100 + 10);
@@ -161,18 +154,23 @@ class AABBTreeTest extends Sprite {
 		} else if (e.keyCode == "B".code) {		// rebuild tree bottom-up
 			tree.rebuild();
 			redraw = true;
-		} else if (e.keyCode == RIGHT) {		// add random leaf
-			var r = getRandomRect();
-			if (Math.random() < .5) {	// 50% chance of inserting a point (rect with size 0)
-				r.width = 0;
-				r.height = 0;
+		} else if (e.keyCode == RIGHT) {		// add random leaf/leaves
+			var count = e.shiftKey ? 10 : 1;
+			for (i in 0...count) {
+				var r = getRandomRect();
+				if (Math.random() < .5) {	// 50% chance of inserting a point (rect with size 0)
+					r.width = 0;
+					r.height = 0;
+				}
+				tree.insertLeaf(r.x, r.y, r.width, r.height, r);
 			}
-			tree.insertLeaf(r.x, r.y, r.width, r.height, r);
 			redraw = true;
 		} else if (e.keyCode == LEFT) {		// remove random leaf
 			var leafIds = tree.getLeavesIds();
 			var leaves = tree.numLeaves;
-			if (leaves > 0) tree.removeLeaf(leafIds[Std.int(Math.random() * leaves)]);
+			if (leaves > 0) {
+				tree.removeLeaf(leafIds[Std.int(Math.random() * leaves)]);
+			}
 			redraw = true;
 		} else if (e.keyCode == "S".code) {		// toggle strictMode
 			strictMode = !strictMode;
@@ -211,7 +209,11 @@ class AABBTreeTest extends Sprite {
 			overlay.moveTo(startPoint.x, startPoint.y);
 			overlay.lineTo(endPoint.x, endPoint.y);
 		} else {
-			overlay.drawRect(queryRect.x, queryRect.y, queryRect.width, queryRect.height);
+			if (queryRect.width < .5 && queryRect.height < .5) {
+				overlay.drawCircle(queryRect.x, queryRect.y, 2);
+			} else {
+				overlay.drawRect(queryRect.x, queryRect.y, queryRect.width, queryRect.height);
+			}
 		} 
 		
 		if (results.length > 0) drawRects(overlay, results);
@@ -240,7 +242,9 @@ class AABBTreeTest extends Sprite {
 	{
 		var mem = System.totalMemory / 1024 / 1024;
 		text.text = 
-			//"" + toFixed(mem) + " MB / " + fps.currentFPS + " FPS\n" +
+		#if debug
+			"MEM: " + toFixed(mem) + " MB     FPS: " + fps.currentFPS + "/" + stage.frameRate + "\n" +
+		#end
 			"\n  mouse-drag to perform\n   queries on the tree\n\n\n" +
 			"nodes            : " + tree.numNodes + "\n" +
 			"leaves           : " + tree.numLeaves + "\n" +

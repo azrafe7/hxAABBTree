@@ -26,6 +26,7 @@ class AABB
 	}
 	inline private function set_x(value:Float):Float
 	{
+		maxX += value - minX;
 		return minX = value;
 	}
 	
@@ -36,19 +37,28 @@ class AABB
 	}
 	inline private function set_y(value:Float):Float
 	{
+		maxY += value - minY;
 		return minY = value;
 	}
 	
-	public var width(get, null):Float;
+	public var width(get, set):Float;
 	inline private function get_width():Float
 	{
 		return maxX - minX;
 	}
+	inline private function set_width(value:Float):Float
+	{
+		return maxX = minX + value;
+	}
 	
-	public var height(get, null):Float;
+	public var height(get, set):Float;
 	inline private function get_height():Float
 	{
 		return maxY - minY;
+	}
+	inline private function set_height(value:Float):Float
+	{
+		return maxY = minY + value;
 	}
 	
 	/** 
