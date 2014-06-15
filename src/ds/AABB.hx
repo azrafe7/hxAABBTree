@@ -168,4 +168,9 @@ class AABB
 		maxY = aabb.maxY;
 		return this;
 	}
+	
+	public function toString():String 
+	{
+		return '[x:${minX} y:${minY} w:${width} h:${height}]';
+	}
 }

@@ -82,11 +82,11 @@ class AABBTree<T>
 	 * @param	insertStrategy			Strategy to use for choosing where to insert a new leaf. Defaults to `InsertStrategyPerimeter`.
 	 * @param	initialPoolCapacity		How much free nodes to have in the pool initially.
 	 */
-	public function new(fattenDelta:Float = 10, ?insertStrategy:IInsertStrategy<T>, initialPoolCapacity:Int = 16):Void
+	public function new(fattenDelta:Float = 10, ?insertStrategy:IInsertStrategy<T>, initialPoolCapacity:Int = 64, poolGrowthFactor:Float = 2):Void
 	{
 		this.fattenDelta = fattenDelta;
 		this.insertStrategy = insertStrategy != null ? insertStrategy : new InsertStrategyPerimeter<T>();
-		pool = new NodePool<T>(initialPoolCapacity);
+		pool = new NodePool<T>(initialPoolCapacity, poolGrowthFactor);
 		unusedIds = [];
 		nodes = [];
 		leaves = new Map<Int, Int>();

@@ -16,7 +16,7 @@ import ds.aabbtree.IInsertStrategy.InsertChoice;
  */
 class InsertStrategyManhattan<T> implements IInsertStrategy<T>
 {
-	static var combinedAABB = new AABB();
+	var combinedAABB = new AABB();
 	
 	public function new() {}
 	

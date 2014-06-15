@@ -28,7 +28,7 @@ class NodePool<T>
 	var freeNodes:Array<Node<T>>;
 	
 	
-	function new(capacity:Int, growthFactor:Float = 1.5)
+	function new(capacity:Int, growthFactor:Float = 2)
 	{
 		this.capacity = capacity;
 		this.growthFactor = growthFactor;
