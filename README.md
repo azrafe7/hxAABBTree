@@ -20,7 +20,7 @@ Check the [demo](https://dl.dropboxusercontent.com/u/32864004/dev/FPDemo/AABBTre
 class Entity
 {
 	public var id:Int = -1;   // id to interact with the tree
-	public mbr:AABB;          // minimum bounding rect
+	public var mbr:AABB;      // minimum bounding rect
 	public var type:String;
 	//...
 	public function new(type:String, x:Float, y:Float, width:Float, height:Float)
