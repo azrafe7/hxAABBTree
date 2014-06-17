@@ -32,11 +32,28 @@ enum HitBehaviour {
 /**
  * AABBTree implementation. A spatial partitioning data structure.
  * 
+ * Note: compiling in DEBUG mode will enable a series of tests to ensure 
+ * the structure's validity (will affect performance), while
+ * in RELEASE mode they won't be executed.
+ * 
+ * You can force the validation by passing -DTREE_CHECKS to the compiler,
+ * or forcefully disable it with -DNO_TREE_CHECKS.
+ * 
+ * The `isValidationEnabled` property will be set consequently.
+ * 
  * @author azrafe7
  */
 @:allow(ds.aabbtree.DebugRenderer)
+@:allow(ds.AABBTreeIterator)
 class AABBTree<T>
 {
+	
+#if ((debug && !NO_TREE_CHECKS) || TREE_CHECKS)
+	public var isValidationEnabled(default, null):Bool = true;
+#else
+	public var isValidationEnabled(default, null):Bool = false;
+#end
+
 	/** How much to fatten the aabb. */
 	public var fattenDelta:Float;
 	
@@ -71,7 +88,7 @@ class AABBTree<T>
 	/* Cache-friendly array of nodes. Entries are set to null when removed (to be reused later). */
 	var nodes:Array<Node<T>>;
 	
-	/* Set of leaf nodes indices (implement as IntMap - values are the same as keys). */
+	/* Set of leaf nodes indices (implemented as IntMap - values are the same as keys). */
 	var leaves:Map<Int, Int>;
 
 	
@@ -81,6 +98,7 @@ class AABBTree<T>
 	 * @param	fattenDelta				How much to fatten the aabbs (to avoid updating the nodes too frequently when the underlying data moves/resizes).
 	 * @param	insertStrategy			Strategy to use for choosing where to insert a new leaf. Defaults to `InsertStrategyPerimeter`.
 	 * @param	initialPoolCapacity		How much free nodes to have in the pool initially.
+	 * @param	poolGrowthCapacity		The pool will grow by this factor when it's empty.
 	 */
 	public function new(fattenDelta:Float = 10, ?insertStrategy:IInsertStrategy<T>, initialPoolCapacity:Int = 64, poolGrowthFactor:Float = 2):Void
 	{
@@ -91,6 +109,12 @@ class AABBTree<T>
 		nodes = [];
 		leaves = new Map<Int, Int>();
 	}
+
+	/** Iterator over leaves data. So you can do: `for (data in tree) ...`. */
+	inline public function iterator():Iterator<T> 
+	{
+		return new AABBTreeIterator(this);
+	}
 	
 	/** 
 	 * Inserts a leaf node with the specified `aabb` values and associated `data`.
@@ -99,7 +123,7 @@ class AABBTree<T>
 	 * 
 	 * @return The index of the inserted node.
 	 */
-	public function insertLeaf(x:Float, y:Float, width:Float = 0, height:Float = 0, ?data:T):Int
+	public function insertLeaf(data:T, x:Float, y:Float, width:Float = 0, height:Float = 0):Int
 	{
 		// create new node and fatten its aabb
 		var leafNode = pool.get(x, y, width, height, data, null, getNextId());
@@ -185,9 +209,12 @@ class AABBTree<T>
 	/** 
 	 * Updates the aabb of leaf node with the specified `leafId` (must be a leaf node).
 	 * 
-	 * @return False if the fat aabb didn't need to be expanded.
+	 * @param	dx	Movement prediction along the x axis.
+	 * @param	dy	Movement prediction along the y axis.
+	 * 
+	 * @return false if the fat aabb didn't need to be expanded.
 	 */
-	public function updateLeaf(leafId:Int, x:Float, y:Float, width:Float = 0, height:Float = 0):Bool
+	public function updateLeaf(leafId:Int, x:Float, y:Float, width:Float = 0, height:Float = 0, dx:Float = 0, dy:Float = 0):Bool
 	{
 		var leafNode = nodes[leafId];
 		assert(leafNode.isLeaf());
@@ -201,7 +228,24 @@ class AABBTree<T>
 		
 		var data = leafNode.data;
 		removeLeaf(leafId);
-		var newId = insertLeaf(x, y, width, height, data);
+		
+		// add movement prediction
+		dx *= 2;
+		dy *= 2;
+		if (dx < 0) {
+			x += dx;
+			width -= dx;
+		} else {
+			width += dx;
+		}
+		if (dy < 0) {
+			y += dy;
+			height -= dy;
+		} else {
+			height += dy;
+		}
+		
+		var newId = insertLeaf(data, x, y, width, height);
 		
 		assert(newId == leafId);
 		
@@ -289,7 +333,7 @@ class AABBTree<T>
 		assert(numNodes == 0);
 	}
 	
-	/** Rebuild the tree using a bottom-up strategy (should result in a better tree, but is expensive). */
+	/** Rebuild the tree using a bottom-up strategy (should result in a better tree, but is very expensive). */
 	public function rebuild():Void 
 	{
 		if (root == null) return;
@@ -765,7 +809,7 @@ class AABBTree<T>
 	inline static private function sqr(x:Float):Float { return x * x; }
 
 	
-#if debug
+#if ((debug && !NO_TREE_CHECKS) || TREE_CHECKS)
 
 	function validate() {
 		if (root != null) validateNode(root.id);
@@ -787,4 +831,28 @@ class AABBTree<T>
 	}
 	
 #end
+}
+
+
+class AABBTreeIterator<T>
+{
+	var it:Int;
+	var length:Int;
+	var tree:AABBTree<T>;
+	var ids:Array<Int>;
+	
+	public function new(tree:AABBTree<T>) {
+		this.tree = tree;
+		it = 0;
+		length = tree.numLeaves;
+		ids = tree.getLeavesIds();
+	}
+	
+	public function hasNext():Bool {
+		return it < length;
+	}
+	
+	public function next():T {
+		return tree.nodes[ids[it++]].data;
+	}
 }

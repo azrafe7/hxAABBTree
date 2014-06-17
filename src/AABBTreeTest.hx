@@ -1,6 +1,7 @@
 package;
 
 
+import ds.AABB;
 import ds.AABBTree;
 import ds.aabbtree.InsertStrategyArea;
 import ds.aabbtree.DebugRenderer;
@@ -12,7 +13,6 @@ import flash.events.KeyboardEvent;
 import flash.events.MouseEvent;
 import flash.filters.GlowFilter;
 import flash.geom.Point;
-import flash.geom.Rectangle;
 import flash.Lib;
 import flash.system.System;
 import flash.text.TextField;
@@ -23,11 +23,27 @@ import haxe.Timer;
 import openfl.display.FPS;
 
 
+@:publicFields
+class Entity
+{
+	var id:Int;
+	var dir:Point;
+	var aabb:AABB;
+	
+	function new(dir:Point, aabb:AABB):Void 
+	{
+		this.dir = dir;
+		this.aabb = aabb;
+		this.id = -1;
+	}
+}
+
 
 @:access(ds.AABBTree)
 @:access(ds.aabbtree.Node)
 class AABBTreeTest extends Sprite {
 
+	// key codes
 	inline static var LEFT:Int = 37;
 	inline static var UP:Int = 38;
 	inline static var RIGHT:Int = 39;
@@ -39,7 +55,7 @@ class AABBTreeTest extends Sprite {
 	var TEXT_OUTLINE:GlowFilter = new GlowFilter(0xFF000000, 1, 2, 2, 6);
 
 	var QUERY_COLOR:Int = 0xFFCC00;
-	var RESULTS_COLOR:Int = 0xFFFF00;
+	var RESULTS_COLOR:Int = 0xFF0000;
 	var RESULTS_ALPHA:Float = .5;
 	var SPEED = 6;
 	
@@ -49,16 +65,17 @@ class AABBTreeTest extends Sprite {
 	
 	var text:TextField;
 	var g:Graphics;
-	var tree:AABBTree<Rectangle>;
-	var renderer:CustomRenderer<Rectangle>;
-	var results:Array<Rectangle> = [];
+	var tree:AABBTree<Entity>;
+	var renderer:CustomRenderer<Entity>;
+	var results:Array<Entity> = [];
 	var lastQueryInfo: { time:Float, found:Int } = null;
 	
 	var startPoint:Point = new Point();
 	var endPoint:Point = new Point();
-	var queryRect:Rectangle = new Rectangle();
+	var queryRect:AABB = new AABB();
 	var strictMode:Bool = true;
 	var rayMode:Bool = false;
+	var filterMode:Bool = false;
 	var animMode:Bool = false;
 	var dragging:Bool = false;
 
@@ -77,21 +94,15 @@ class AABBTreeTest extends Sprite {
 		stage.addChild(overlaySprite = new Sprite());
 		overlay = overlaySprite.graphics;
 		
-		tree = new AABBTree(10);
+		// instantiate the tree with a fattenDelta of 10 pixels and using area evaluation as insert strategy
+		tree = new AABBTree(10, new InsertStrategyArea());
 		renderer = new CustomRenderer(g);
 		
-		// insert random rects
-		for (i in 0...3) {
-			var r = getRandomRect();
-			tree.insertLeaf(r.x, r.y, r.width, r.height, r);
-		}
-		
-		// insert random points
-		for (i in 0...3) {
-			var r = getRandomRect();
-			r.width = 0;
-			r.height = 0;
-			tree.insertLeaf(r.x, r.y, r.width, r.height, r);
+		// insert entities with random aabbs (or points)
+		for (i in 0...6) {
+			var e = getRandomEntity();
+			var aabb = e.aabb;
+			e.id = tree.insertLeaf(e, aabb.x, aabb.y, aabb.width, aabb.height);
 		}
 		
 		overlaySprite.addChild(text = getTextField("", stageWidth - 230, 5));
@@ -106,22 +117,24 @@ class AABBTreeTest extends Sprite {
 		//quit();
 	}
 	
-	public function drawRects(g:Graphics, list:Array<Rectangle>):Void 
+	public function drawEntities(g:Graphics, list:Array<Entity>, color:Int, alpha:Float):Void 
 	{
-		for (r in list) {
-			g.lineStyle(1, RESULTS_COLOR, RESULTS_ALPHA);
-			if (r.width < .5 && r.height < .5) {
-				g.drawCircle(r.x, r.y, 2);
+		for (e in list) {
+			g.lineStyle(1, color, alpha);
+			var aabb = e.aabb;
+			if (aabb.width < .5 && aabb.height < .5) {
+				g.drawCircle(aabb.x, aabb.y, 2);
 			} else {
-				g.beginFill(RESULTS_COLOR, RESULTS_ALPHA);
-				g.drawRect(r.x, r.y, r.width, r.height);
+				g.beginFill(color, alpha);
+				g.drawRect(aabb.x, aabb.y, aabb.width, aabb.height);
 				g.endFill();
 			}
 		}
 	}
 	
-	public function rayCallback(data:Rectangle, id:Int):HitBehaviour
+	public function queryCallback(data:Entity, id:Int):HitBehaviour
 	{
+		if (data.aabb.width > 0 && data.aabb.height > 0) return HitBehaviour.SKIP;
 		return HitBehaviour.INCLUDE;
 	}
 
@@ -132,59 +145,76 @@ class AABBTreeTest extends Sprite {
 		return value;
 	}
 	
-	public function getRandomRect():Rectangle
+	public function getRandomEntity():Entity
 	{
-		return new Rectangle(Math.random() * stageWidth * .5 + 25, Math.random() * stageHeight * .6 + 25, Math.random() * 100 + 10, Math.random() * 100 + 10);
+		var aabb = new AABB(Math.random() * stageWidth * .5 + 25, Math.random() * stageHeight * .6 + 25, Math.random() * 100 + 10, Math.random() * 100 + 10);
+		
+		// 50% chance of inserting a point (rect with size 0)
+		if (Math.random() < .5) {
+			aabb.width = 0;
+			aabb.height = 0;
+		}
+		var dir = new Point(Math.random() * 2 - 1, Math.random() * 2 - 1);
+		dir.normalize(4);
+		var e = new Entity(dir, aabb);
+		return e;
 	}
 
 	
 	public function onKeyDown(e:KeyboardEvent):Void 
 	{
-		if (e.keyCode == 27) quit();
-		
 		var syncMaxLevel = renderer.maxLevel == tree.height;
-		if (e.keyCode == UP || e.keyCode == DOWN) {		// inc/dec max drawn level
-			renderer.maxLevel += e.keyCode == UP ? 1 : -1;
-			renderer.maxLevel = clamp(renderer.maxLevel, 0, tree.height);
-			syncMaxLevel = false;
-			redraw = true;
-		} else if (e.keyCode == "C".code) {		// clear tree
-			tree.clear();
-			redraw = true;
-		} else if (e.keyCode == "B".code) {		// rebuild tree bottom-up
-			tree.rebuild();
-			redraw = true;
-		} else if (e.keyCode == RIGHT) {		// add random leaf/leaves
-			var count = e.shiftKey ? 10 : 1;
-			for (i in 0...count) {
-				var r = getRandomRect();
-				if (Math.random() < .5) {	// 50% chance of inserting a point (rect with size 0)
-					r.width = 0;
-					r.height = 0;
+
+		switch (e.keyCode) 
+		{
+			case 27:					// ESC: quit
+				quit();
+			case UP, DOWN:				// inc/dec max drawn level
+				renderer.maxLevel += e.keyCode == UP ? 1 : -1;
+				renderer.maxLevel = clamp(renderer.maxLevel, 0, tree.height);
+				syncMaxLevel = false;
+				redraw = true;
+			case "C".code:				// clear tree
+				tree.clear();
+				redraw = true;
+			case "B".code:				// rebuild tree bottom-up (beware: sloow!)
+				tree.rebuild();
+				redraw = true;
+			case RIGHT:					// add random leaf/leaves
+				var count = e.shiftKey ? 10 : 1;
+				for (i in 0...count) {
+					var entity = getRandomEntity();
+					var aabb = entity.aabb;
+					entity.id = tree.insertLeaf(entity, aabb.x, aabb.y, aabb.width, aabb.height);
 				}
-				tree.insertLeaf(r.x, r.y, r.width, r.height, r);
-			}
-			redraw = true;
-		} else if (e.keyCode == LEFT) {		// remove random leaf
-			var leafIds = tree.getLeavesIds();
-			var leaves = tree.numLeaves;
-			if (leaves > 0) {
-				tree.removeLeaf(leafIds[Std.int(Math.random() * leaves)]);
-			}
-			redraw = true;
-		} else if (e.keyCode == "S".code) {		// toggle strictMode
-			strictMode = !strictMode;
-			redraw = true;
-		} else if (e.keyCode == "R".code) {		// toggle rayMode
-			rayMode	= !rayMode;
-			redraw = true;
-		} else if (e.keyCode == "L".code) {		// toggle leafOnly rendering
-			renderer.leafOnly = !renderer.leafOnly;
-			redraw = true;
-		} else if (e.keyCode == "A".code) {		// toggle animMode
-			animMode = !animMode;
-			redraw = true;
-		}
+				redraw = true;
+			case LEFT:					// remove random leaf/leaves
+				var count = e.shiftKey ? 10 : 1;
+				for (i in 0...count) {
+					var leafIds = tree.getLeavesIds();
+					var leaves = tree.numLeaves;
+					if (leaves > 0) {
+						tree.removeLeaf(leafIds[Std.int(Math.random() * leaves)]);
+					}
+				}
+				redraw = true;
+			case "S".code:				// toggle strictMode
+				strictMode = !strictMode;
+				redraw = true;
+			case "R".code:				// toggle rayMode
+				rayMode	= !rayMode;
+				redraw = true;
+			case "L".code:				// toggle leafOnly rendering
+				renderer.leafOnly = !renderer.leafOnly;
+				redraw = true;
+			case "A".code:				// toggle animMode
+				animMode = !animMode;
+				redraw = true;
+			case "F".code:				// toggle filterMode
+				filterMode = !filterMode;
+				redraw = true;
+			default:
+		}		
 		
 		if (syncMaxLevel) renderer.maxLevel = tree.height;
 	}
@@ -216,7 +246,7 @@ class AABBTreeTest extends Sprite {
 			}
 		} 
 		
-		if (results.length > 0) drawRects(overlay, results);
+		if (results.length > 0) drawEntities(overlay, results, RESULTS_COLOR, RESULTS_ALPHA);
 		
 		updateText();
 	}
@@ -225,16 +255,29 @@ class AABBTreeTest extends Sprite {
 	{
 		var ids = tree.getLeavesIds();
 		for (id in ids) {
-			var rect = tree.getData(id);
-			rect.x += Math.random() * SPEED * 2 - SPEED;
-			rect.y += Math.random() * SPEED * 2 - SPEED;
-			if (rect.width > 0 && rect.height > 0) {
-				rect.width += Math.random() * SPEED - SPEED * .5;
-				rect.height += Math.random() * SPEED - SPEED * .5;
-				if (rect.width < 0) rect.width = 0;
-				if (rect.height < 0) rect.height = 0;
+			var e = tree.getData(id);
+			var aabb = e.aabb;
+			
+			// bounce
+			aabb.x += e.dir.x;
+			aabb.y += e.dir.y;
+			var center = new Point(aabb.getCenterX(), aabb.getCenterY());
+			if (center.x < 0) {
+				aabb.x = -center.x;
+				e.dir.x *= -1;
+			} else if (center.x > stageWidth) {
+				aabb.x = stageWidth - aabb.width * .5;
+				e.dir.x *= -1;
 			}
-			tree.updateLeaf(id, rect.x, rect.y, rect.width, rect.height);
+			if (center.y < 0) {
+				aabb.y = -center.y;
+				e.dir.y *= -1;
+			} else if (center.y > stageHeight) {
+				aabb.y = stageHeight - aabb.height * .5;
+				e.dir.y *= -1;
+			}
+			
+			tree.updateLeaf(e.id, aabb.x, aabb.y, aabb.width, aabb.height/*, e.dir.x, e.dir.y*/);
 		}
 	}
 	
@@ -252,7 +295,8 @@ class AABBTreeTest extends Sprite {
 			"[R] rayMode      : " + (rayMode ? "ON" : "OFF") + "\n" +
 			"[S] strictMode   : " + (strictMode ? "ON" : "OFF") + "\n" +
 			"[L] leafOnly     : " + (renderer.leafOnly ? "ON" : "OFF") + "\n" +
-			"[A] animMode     : " + (animMode ? "ON" : "OFF") + "\n\n" +
+			"[A] animMode     : " + (animMode ? "ON" : "OFF") + "\n" +
+			"[F] filterMode   : " + (filterMode ? "ON" : "OFF") + "\n\n" +
 			"[RIGHT/LEFT] add/remove leaf\n" + 
 			"[UP/DOWN]    inc/dec maxLevel\n" +
 			"[B]          rebuild tree\n" +
@@ -263,6 +307,7 @@ class AABBTreeTest extends Sprite {
 				"query time       : " + toFixed(lastQueryInfo.time, 4) + "s\n" +
 				"leaves found     : " + lastQueryInfo.found;
 		}
+		text.text += "\n\n\nvalidation       : " + (tree.isValidationEnabled ? "ON" : "OFF");
 	}
 
 	public function toFixed(f:Float, decimals:Int = 2):String 
@@ -314,8 +359,8 @@ class AABBTreeTest extends Sprite {
 	public function query():Void 
 	{
 		var startTime = Timer.stamp();
-		if (rayMode) results = tree.rayCast(startPoint.x, startPoint.y, endPoint.x, endPoint.y, null, rayCallback);
-		else results = tree.query(queryRect.x, queryRect.y, queryRect.width, queryRect.height, strictMode);
+		if (rayMode) results = tree.rayCast(startPoint.x, startPoint.y, endPoint.x, endPoint.y, null, filterMode ? queryCallback : null);
+		else results = tree.query(queryRect.x, queryRect.y, queryRect.width, queryRect.height, strictMode, null, filterMode ? queryCallback : null);
 		
 		lastQueryInfo = { time:Timer.stamp() - startTime, found:results.length };
 	}
@@ -344,5 +389,4 @@ class AABBTreeTest extends Sprite {
 			Sys.exit(1);
 		#end
 	}
-
 }
