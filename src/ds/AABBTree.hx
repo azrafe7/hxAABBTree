@@ -32,8 +32,8 @@ enum HitBehaviour {
 /**
  * AABBTree implementation. A spatial partitioning data structure.
  * 
- * Note: compiling in DEBUG mode will enable a series of tests to ensure 
- * the structure's validity (will affect performance), while
+ * Note: by default compiling in DEBUG mode will enable a series of tests
+ * to ensure the structure's validity (will affect performance), while
  * in RELEASE mode they won't be executed.
  * 
  * You can force the validation by passing -DTREE_CHECKS to the compiler,
@@ -54,7 +54,7 @@ class AABBTree<T>
 	public var isValidationEnabled(default, null):Bool = false;
 #end
 
-	/** How much to fatten the aabb. */
+	/** How much to fatten the aabbs. */
 	public var fattenDelta:Float;
 	
 	/** Algorithm to use for choosing where to insert a new leaf. */
@@ -220,7 +220,6 @@ class AABBTree<T>
 		assert(leafNode.isLeaf());
 		
 		var newAABB = new AABB(x, y, width, height);
-		var leafNode = nodes[leafId];
 		
 		if (leafNode.aabb.contains(newAABB)) {
 			return false;
@@ -333,13 +332,14 @@ class AABBTree<T>
 		assert(numNodes == 0);
 	}
 	
-	/** Rebuild the tree using a bottom-up strategy (should result in a better tree, but is very expensive). */
+	/** Rebuilds the tree using a bottom-up strategy (should result in a better tree, but is very expensive). */
 	public function rebuild():Void 
 	{
 		if (root == null) return;
 
 		// free non-leaf nodes
 		for (node in nodes) {
+			if (node == null) continue;
 			if (!node.isLeaf()) {
 				disposeNode(node.id);
 			} else {
@@ -473,6 +473,19 @@ class AABBTree<T>
 		}
 		//trace("examined: " + cnt);
 		return res;
+	}
+	
+	/**
+	 * Queries the tree for objects overlapping the specified point.
+	 * 
+	 * @param	into			Hit objects will be appended to this (based on callback return value).
+	 * @param	callback		A function called for every object hit (function callback(data:*, id:int):HitBehaviour).
+	 * 
+	 * @return A list of all the objects found (or `into` if it was specified).
+	 */
+	inline public function queryPoint(x:Float, y:Float, ?into:Array<T>, ?callback:T->Int->HitBehaviour):Array<T>
+	{
+		return query(x, y, 0, 0, false, into, callback);
 	}
 	
 	/**
@@ -739,36 +752,37 @@ class AABBTree<T>
 		return nodes[id];
 	}
 	
-	/** Tests validity of node (and its children). */
+	/** Tests validity of node with the specified `id` (and its children). */
 	private function validateNode(id:Int):Void 
 	{
-		var node = nodes[id];
-		assert(node != null);
-		
-		var left = node.left;
-		var right = node.right;
-		
-		if (node.isLeaf()) {
-			assert(left == null);
-			assert(right == null);
-			node.invHeight = 0;
-			assert(leaves[node.id] >= 0);
-			return;
-		}
-		
-		assert(left.id >= 0);
-		assert(right.id >= 0);
-		
-		assert(node.invHeight == 1 + Math.max(left.invHeight, right.invHeight));
 		var aabb = new AABB();
-		aabb.asUnionOf(left.aabb, right.aabb);
-		assert(Math.abs(node.aabb.minX - aabb.minX) < 0.000001);
-		assert(Math.abs(node.aabb.minY - aabb.minY) < 0.000001);
-		assert(Math.abs(node.aabb.maxX - aabb.maxX) < 0.000001);
-		assert(Math.abs(node.aabb.maxY - aabb.maxY) < 0.000001);
-		
-		validateNode(left.id);
-		validateNode(right.id);
+		var root = nodes[id];
+		var stack = [root];
+		while (stack.length > 0) {
+			var node = stack.pop();
+			assert(node != null);
+			
+			var left = node.left;
+			var right = node.right;
+			
+			if (node.isLeaf()) {
+				assert(left == null);
+				assert(right == null);
+				node.invHeight = 0;
+				assert(leaves[node.id] >= 0);
+				continue;
+			}
+			
+			assert(left.id >= 0);
+			assert(right.id >= 0);
+			
+			assert(node.invHeight == 1 + Math.max(left.invHeight, right.invHeight));
+			aabb.asUnionOf(left.aabb, right.aabb);
+			assert(Math.abs(node.aabb.minX - aabb.minX) < 0.000001);
+			assert(Math.abs(node.aabb.minY - aabb.minY) < 0.000001);
+			assert(Math.abs(node.aabb.maxX - aabb.maxX) < 0.000001);
+			assert(Math.abs(node.aabb.maxY - aabb.maxY) < 0.000001);
+		}
 	}
 	
 	static private function segmentIntersect(p0x:Float, p0y:Float, p1x:Float, p1y:Float, q0x:Float, q0y:Float, q1x:Float, q1y:Float):Bool
